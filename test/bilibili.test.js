@@ -14,6 +14,8 @@ test('renders dynamic speak templates with real sender information', () => {
   assert.equal(renderSpeakTemplate('{user}说：', { user: '   ', uid: 0, roomId: 0 }), '观众说：');
   assert.equal(renderSpeakTemplate('{user}说：', { user: 'M***', uid: 0, roomId: 0 }), '观众说：');
   assert.equal(renderSpeakTemplate('{user}说：', { user: '空***', uid: 0, roomId: 0 }), '观众说：');
+  assert.equal(renderSpeakTemplate('观众{user}说：', { user: 'M***', uid: 0, roomId: 0 }), '观众说：');
+  assert.equal(renderSpeakTemplate('观众{user}说：', { user: '小明', uid: 1, roomId: 0 }), '观众小明说：');
   assert.equal(renderSpeakTemplate('{nickname}说：', context), '{nickname}说：');
 });
 
@@ -115,10 +117,18 @@ test('reader connects with a visitor session and sends filtered comments to the 
   assert.equal(spoken[0].text, '测试用户说：这是*广告');
   assert.equal(spoken[0].user, '测试用户');
   assert.equal(reader.status().stats.spoken, 1);
+  assert.equal(reader.status().loggedIn, false);
+  assert.equal(reader.status().maskedReceived, 0);
+
+  const masked = new Event('DANMU_MSG');
+  masked.data = { info: [[0, 1, 25], '打码昵称的弹幕', [0, 'M***']] };
+  socket.dispatchEvent(masked);
+  assert.equal(reader.status().maskedReceived, 1);
+  assert.equal(spoken[1].text, '观众说：打码昵称的弹幕');
 
   const duplicate = new Event('DANMU_MSG');
   duplicate.data = { info: [[0, 1, 25], '这是赌博广告', [123, '测试用户']] };
   socket.dispatchEvent(duplicate);
-  assert.equal(spoken.length, 1);
+  assert.equal(spoken.length, 2);
   assert.equal(reader.status().stats.skipped, 1);
 });

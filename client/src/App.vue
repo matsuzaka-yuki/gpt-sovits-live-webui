@@ -102,6 +102,7 @@ const speakTemplatePresets = [
   { label: '弹幕说：', value: '弹幕说：' }
 ];
 function setSpeakTemplate(value) { config.value.bilibili.readPrefix = value; }
+const speakTemplateUsesName = computed(() => /\{(user|name)\}/i.test(config.value?.bilibili?.readPrefix || ''));
 const speakPreview = computed(() => {
   const template = config.value?.bilibili?.readPrefix || '';
   const sample = '今天直播真好看';
@@ -111,6 +112,21 @@ const speakPreview = computed(() => {
     .replace(/\{uid\}/gi, '12345678')
     .replace(/\{room\}/gi, String(config.value?.bilibili?.roomId || '5928158'));
   return (rendered + sample).replace(/\s+/g, ' ').trim();
+});
+const speakPreviewFallback = computed(() => {
+  const template = config.value?.bilibili?.readPrefix || '';
+  if (!template || !speakTemplateUsesName.value) return '';
+  const rendered = template
+    .replace(/\{(user|name)\}/gi, '观众')
+    .replace(/\{uid\}/gi, '')
+    .replace(/\{room\}/gi, String(config.value?.bilibili?.roomId || '5928158'))
+    .replace(/观众(?:\s*观众)+/g, '观众');
+  return (rendered + '今天直播真好看').replace(/\s+/g, ' ').trim();
+});
+const bilibiliSessionNote = computed(() => {
+  if (bilibili.value.loggedIn) return '当前会话：已登录（UID ' + bilibili.value.sessionUid + '），可以读取真实用户名。';
+  if (bilibili.value.maskedReceived > 0) return '当前会话：访客。B 站会把昵称打码成 M***，只能朗读成“观众”。填写下面的 Cookie 后重启监听即可拿到真实用户名。';
+  return '当前会话：访客。想朗读真实用户名，需要填写下面的 Cookie。';
 });
 async function controlBilibili(action) {
   if (action === 'start' && !(await save())) return;
@@ -255,7 +271,8 @@ onUnmounted(() => { disposed = true; clearInterval(poll); clearTimeout(retry); s
             <label>朗读模板（可选，支持 {user} 用户名、{uid} 用户ID、{room} 房间号）<input v-model="config.bilibili.readPrefix" placeholder="例如：{user}说："></label>
             <label>快速选择模板<select :value="config.bilibili.readPrefix || ''" @change="setSpeakTemplate($event.target.value)"><option v-for="item in speakTemplatePresets" :key="item.value" :value="item.value">{{ item.label }}</option><option v-if="!speakTemplatePresets.some(item => item.value === (config.bilibili.readPrefix || ''))" :value="config.bilibili.readPrefix">自定义</option></select></label>
             <p class="muted">朗读效果：{{ speakPreview }}</p>
-            <p class="muted">B 站对未登录访客会隐藏昵称（显示成 M***），此时会朗读成“观众”。想朗读真实用户名，请在下面填写自己的 Cookie。</p>
+            <p v-if="speakPreviewFallback" class="muted">昵称取不到时：{{ speakPreviewFallback }}</p>
+            <p class="muted" :class="{ warn: speakTemplateUsesName && !bilibili.loggedIn }">{{ bilibiliSessionNote }}</p>
             <label>B站 Cookie（可选）<textarea class="short" v-model="config.bilibili.cookie" placeholder="遇到风控时填写 SESSDATA=...; bili_jct=...; buvid3=..."></textarea></label>
           </details>
           <details v-if="bilibili.recent?.length"><summary>最近弹幕</summary><div class="danmaku-list"><div v-for="item in bilibili.recent" :key="item.time + item.text" class="danmaku-item"><span>{{ item.user }}</span><strong>{{ item.text }}</strong><em>{{ item.action }}{{ item.reason ? ' · ' + item.reason : '' }}</em></div></div></details>

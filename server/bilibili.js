@@ -96,10 +96,9 @@ export function renderSpeakTemplate(template, context = {}) {
   const source = typeof template === "string" ? template : "";
   if (!source) return "";
   const rawName = normalizeText(context.user);
-  const userName = !rawName || rawName === PROTOCOL_UNKNOWN_USER || MASKED_USER_NAME.test(rawName)
-    ? FALLBACK_USER_NAME
-    : clampText(rawName, 24);
-  const rendered = source.replace(TEMPLATE_PATTERN, (match, key) => {
+  const nameUnavailable = !rawName || rawName === PROTOCOL_UNKNOWN_USER || MASKED_USER_NAME.test(rawName);
+  const userName = nameUnavailable ? FALLBACK_USER_NAME : clampText(rawName, 24);
+  let rendered = source.replace(TEMPLATE_PATTERN, (match, key) => {
     switch (String(key).toLowerCase()) {
       case "user":
       case "name":
@@ -112,6 +111,13 @@ export function renderSpeakTemplate(template, context = {}) {
         return match;
     }
   });
+  // 模板写成“观众{user}说：”时，昵称取不到会替换成“观众观众说：”，这里合并成一次。
+  if (nameUnavailable) {
+    rendered = rendered.replace(
+      new RegExp(`(${escapeRegExp(FALLBACK_USER_NAME)})(?:\\s*\\1)+`, "g"),
+      "$1"
+    );
+  }
   return normalizeText(rendered);
 }
 
@@ -137,6 +143,8 @@ export class BilibiliDanmakuReader extends EventEmitter {
     this.recent = [];
     this.seen = new Map();
     this.userRate = new Map();
+    this.sessionUid = 0;
+    this.maskedReceived = 0;
     this.stats = {
       received: 0,
       spoken: 0,
@@ -189,6 +197,7 @@ export class BilibiliDanmakuReader extends EventEmitter {
     this.error = "";
     this.connectedAt = null;
     this.roomId = null;
+    this.sessionUid = 0;
     this.log("弹幕监听已停止");
     this.emitStatus();
     return this.status();
@@ -218,7 +227,12 @@ export class BilibiliDanmakuReader extends EventEmitter {
       error: this.error,
       logs: this.logs.join("\n"),
       stats: { ...this.stats },
-      recent: this.recent.map((item) => ({ ...item }))
+      recent: this.recent.map((item) => ({ ...item })),
+      // 登录状态下 B 站才会下发真实昵称和 UID；访客会话拿到的是 M*** 这类打码昵称。
+      loggedIn: this.sessionUid > 0,
+      sessionUid: this.sessionUid,
+      cookieConfigured: Boolean(String(config.cookie || "").trim()),
+      maskedReceived: this.maskedReceived
     };
   }
 
@@ -253,6 +267,7 @@ export class BilibiliDanmakuReader extends EventEmitter {
       const info = await client.xliveGetDanmuInfo({ id: resolvedRoomId });
       const liveConfig = parseLiveConfig(info.data);
       const uid = Number(client.cookies.get("DedeUserID")) || 0;
+      this.sessionUid = uid;
       const buvid = client.cookies.get("buvid3") || client.cookies.get("buvid4") || undefined;
 
       if (!this.running || generation !== this.generation) return;
@@ -333,6 +348,7 @@ export class BilibiliDanmakuReader extends EventEmitter {
     const item = extractDanmaku(message);
     if (!item) return;
     this.stats.received += 1;
+    if (MASKED_USER_NAME.test(normalizeText(item.name))) this.maskedReceived += 1;
 
     const config = this.config();
     const filtered = filterDanmaku(item.text, config);

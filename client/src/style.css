@@ -45,6 +45,7 @@ label{display:flex;flex-direction:column;gap:9px;font-size:12px;color:#6e786d}
 .primary:hover{background:#1d503c}
 .primary span{padding-left:18px}
 .muted{color:var(--muted);font-size:12px;line-height:1.7}
+.muted.warn{color:#9c4836}
 .tag{font-size:11px;padding:4px 9px;background:#edf2e9;color:#53704c;border-radius:4px}
 .playback{display:flex;flex-direction:column}
 .meters{height:103px;display:flex;align-items:center;justify-content:center;gap:5px;margin:12px 0 20px}

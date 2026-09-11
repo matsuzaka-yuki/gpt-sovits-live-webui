@@ -105,7 +105,9 @@ Room ID, filters and limits are stored in `data/config.json` with the rest of th
 | Advanced filters | Ignore `!`, `/`, `#` commands, strip URLs and `[emoticon]` tags, and set an optional spoken prefix. |
 | Spoken template | A dynamic prefix that can include the sender name: `{user}` (nickname), `{name}` (alias), `{uid}` (user id) and `{room}` (room id). For example `{user}说：` is read as `小明说：你好`. Pick one from the quick-select list or type your own; the panel previews the result live. |
 
-Bilibili hides sender nicknames from anonymous visitors, so the default visitor session receives masked names like `M***`. Those comments are read as `观众` instead of the placeholder. To hear real nicknames, paste your own Cookie into Advanced Settings; the listener then runs as your logged-in account and the full name is delivered. A custom prefix such as `观众{user}说：` is a good compromise when you would rather not log in.
+Bilibili hides sender nicknames from anonymous visitors. The raw comment payload of a visitor session carries `uid = 0` and a masked name such as `M***`, so no client can recover the real name without logging in. Those comments are read as `观众` instead of the placeholder, and a template such as `观众{user}说：` collapses to `观众说：` instead of repeating the word twice.
+
+To hear real nicknames, paste your own Cookie into Advanced Settings (it must contain `SESSDATA`). The listener then runs as your logged-in account and Bilibili delivers the full name and UID. The panel shows which session is in use: `当前会话：已登录（UID …）` means real names are available, while `当前会话：访客` means every name will be masked, and the note also counts how many masked names have already arrived.
 
 The listener reconnects with exponential backoff. Its status, counters, connection log and the last filtered comments are visible in Settings. Changing the room, Cookie or enabled state restarts the listener; changing filters applies to the next comment without dropping the connection. The room owner can leave this feature disabled and use the phone composer independently.
 
@@ -278,7 +280,9 @@ npm start
 | 高级过滤 | 忽略以 `!`、`/`、`#` 开头的命令，过滤链接和 `[表情]` 标签，并可设置朗读前缀。 |
 | 朗读模板 | 前缀可以是动态的，支持 `{user}`（用户名）、`{name}`（同上）、`{uid}`（用户 ID）和 `{room}`（房间号）。例如填 `{user}说：`，弹幕“你好”会朗读成“小明说：你好”。面板里有快速选择，也可以自己写模板，并实时预览效果。 |
 
-B 站对未登录访客会隐藏昵称，默认访客会话收到的昵称是 `M***` 这种打码形式。这类弹幕会朗读成“观众”，而不会把星号读出来。想朗读真实用户名，请在高级设置里填写自己的 Cookie，监听会以登录身份运行，就能拿到完整昵称。不想登录的话，可以用 `观众{user}说：` 这种模板作为折中。
+B 站对未登录访客会隐藏昵称。访客会话拿到的原始弹幕数据里 `uid = 0`、昵称是 `M***` 这种打码形式，所以任何客户端在不登录的情况下都拿不到真实用户名。这类弹幕会朗读成“观众”，不会把星号念出来；模板写成 `观众{user}说：` 时也会合并成“观众说：”，不会重复两次。
+
+想朗读真实用户名，请在高级设置里填写自己的 Cookie（必须包含 `SESSDATA`）。监听会以登录身份运行，B 站就会下发完整昵称和 UID。面板里会显示当前用的是哪种会话：`当前会话：已登录（UID …）` 表示能拿到真实用户名，`当前会话：访客` 表示所有昵称都会被打码，并会统计已经收到多少条打码昵称。
 
 监听器断开后会按指数退避自动重连。设置页会显示连接状态、计数、日志和最近过滤结果。修改房间号、Cookie 或启用状态会重启监听；修改过滤规则只会作用于下一条弹幕，不会断开连接。主播不需要该功能时保持关闭即可，手机手动打字合成不受影响。
 
