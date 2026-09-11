@@ -1,6 +1,43 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { BilibiliDanmakuReader, extractDanmaku, filterDanmaku, renderSpeakTemplate } from '../server/bilibili.js';
+import { cleanSpeechText } from '../server/text-cleaner.js';
+
+test('smart cleanup preserves meaningful multilingual speech and drops empty decoration', () => {
+  assert.equal(cleanSpeechText('萝卜喵-official说：不看我不买低于ａ的\u200b🔥！！！'), '萝卜喵-official说:不看我不买低于a的!');
+  assert.equal(cleanSpeechText('你好👨‍👩‍👧‍👦 👍🏽 🇨🇳 1️⃣ **世界**'), '你好 世界');
+  assert.equal(cleanSpeechText("don't，3.14，-5，日本語"), "don't,3.14,-5,日本語");
+  const options = { smartClean: true, bannedWords: ['bad'], filterMode: 'drop', skipCommands: true };
+  assert.equal(filterDanmaku('ｂａ\u200bd', options).action, 'drop');
+  assert.equal(filterDanmaku('！点歌', options).reason, '命令消息');
+  assert.equal(filterDanmaku('🌸 *** !!!', options).reason, '没有可朗读内容');
+  assert.equal(filterDanmaku('bad', { ...options, filterMode: 'mask' }).reason, '没有可朗读内容');
+  assert.equal(filterDanmaku('你好!!!', { smartClean: false }).text, '你好!!!');
+  assert.equal(filterDanmaku('你\u200b好🌸!!!', options).text, '你好!');
+  assert.equal(filterDanmaku('你好！！！', { smartClean: true, maxLength: 3 }).text, '你好!');
+});
+
+test('cleanup switch applies to new danmaku and names, preserving source information', (t) => {
+  const config = { bilibili: { autoRead: true, smartClean: true, readPrefix: '{user}说：' } };
+  const reader = new BilibiliDanmakuReader({ get: () => config });
+  t.after(() => reader.stop());
+  const spoken = [];
+  reader.on('speak', item => spoken.push(item));
+  const message = { info: [[], '不看我不买低于a的🌸！！', [1, '萝卜喵-official🌸']] };
+  reader.handleMessage(message);
+  assert.equal(spoken[0].text, '萝卜喵-official说:不看我不买低于a的!');
+  assert.equal(spoken[0].rawText, message.info[1]);
+  assert.equal(spoken[0].user, message.info[2][1]);
+  reader.handleMessage({ info: [[], '🌸！！！', [1, '观众']] });
+  assert.equal(spoken.length, 1);
+  reader.handleMessage({ info: [[], '你好', [1, '🌸']] });
+  assert.equal(spoken[1].text, '观众说:你好');
+  reader.handleMessage({ info: [[], '你好', [1, 'M***']] });
+  assert.equal(spoken[2].text, '观众说:你好');
+  config.bilibili.smartClean = false;
+  reader.handleMessage(message);
+  assert.equal(spoken[3].text, '萝卜喵-official🌸说：不看我不买低于a的🌸！！');
+});
 
 test('renders dynamic speak templates with real sender information', () => {
   const context = { user: '测试用户', uid: 123456, roomId: 5928158 };

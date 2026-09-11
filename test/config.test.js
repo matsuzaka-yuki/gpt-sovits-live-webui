@@ -16,11 +16,12 @@ test('mode, nested settings and presets survive restart and concurrent saves', a
   const store = new ConfigStore(file);
   await store.load();
   assert.equal(store.get().inferenceMode, 'local');
+  assert.equal(store.get().bilibili.smartClean, false);
   await Promise.all([
     store.update({ localInference: { rootPath: 'D:\\Models\\中文 folder', device: 'cpu' } }),
     store.update({ localInference: { precision: 'full' }, presets: { Voice: { ref_audio_path: 'voice.wav' } } }),
     store.update({ quickTexts: ['你好'], volume: 75 }),
-    store.update({ bilibili: { roomId: 5928158, bannedWords: ['赌博', '诈骗'] } })
+    store.update({ bilibili: { roomId: 5928158, bannedWords: ['赌博', '诈骗'], smartClean: true } })
   ]);
   const restored = new ConfigStore(file);
   await restored.load();
@@ -31,6 +32,8 @@ test('mode, nested settings and presets survive restart and concurrent saves', a
   assert.deepEqual(restored.get().quickTexts, ['你好']);
   assert.equal(restored.get().volume, 75);
   assert.equal(restored.get().bilibili.roomId, 5928158);
+  assert.equal(restored.get().bilibili.smartClean, true);
+  await assert.rejects(store.update({ bilibili: { smartClean: 'true' } }), /智能清理/);
   assert.deepEqual(restored.get().bilibili.bannedWords, ['赌博', '诈骗']);
   await assert.rejects(store.update({ inferenceMode: 'invalid' }));
   assert.equal(store.get().inferenceMode, 'local');

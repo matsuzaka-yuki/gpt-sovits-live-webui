@@ -251,6 +251,8 @@ onUnmounted(() => { disposed = true; clearInterval(poll); clearTimeout(retry); s
             <label>违禁词处理<select v-model="config.bilibili.filterMode"><option value="mask">替换后朗读</option><option value="drop">整条忽略</option></select></label>
           </div>
           <label class="check"><input type="checkbox" v-model="config.bilibili.autoRead">自动把过滤后的弹幕加入电脑合成队列</label>
+          <label class="check"><input type="checkbox" v-model="config.bilibili.smartClean">智能清理朗读文本</label>
+          <p class="muted">清理弹幕和用户名中的表情、不可见字符与装饰符号，合并连续标点；保留中英文和数字。清理后无可朗读内容则跳过。保存后对新弹幕生效。</p>
           <label>违禁词（每行一个，也支持逗号分隔）<textarea class="short" :value="wordsText(config.bilibili.bannedWords)" @input="setWords" placeholder="例如：赌博, 诈骗, 广告"></textarea></label>
           <div class="two">
             <label>最短朗读字数<input type="number" min="1" max="100" v-model.number="config.bilibili.minLength"></label>

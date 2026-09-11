@@ -1,6 +1,7 @@
 import { EventEmitter } from "node:events";
 import { WebSocket as NodeWebSocket } from "ws";
 import { BilibiliApiClient, LiveWS, parseLiveConfig } from "bilibili-live-danmaku";
+import { cleanSpeechText, hasSpeechContent } from './text-cleaner.js';
 
 // Node 20 does not expose a global WebSocket yet. The maintained danmaku
 // client accepts a global implementation, so reuse the ws package there.
@@ -57,7 +58,7 @@ export function extractDanmaku(message) {
 }
 
 export function filterDanmaku(value, options = {}) {
-  let text = normalizeText(value);
+  let text = options.smartClean ? normalizeText(value).normalize('NFKC').replace(/\p{Cf}/gu, '') : normalizeText(value);
   const minLength = Number(options.minLength ?? 1);
   const maxLength = Number(options.maxLength ?? 100);
   const replacement = String(options.replacement || "*").slice(0, 12) || "*";
@@ -71,7 +72,8 @@ export function filterDanmaku(value, options = {}) {
   if (options.stripEmoticons) {
     text = text.replace(EMOTICON_PATTERN, " ").replace(/\s+/g, " ").trim();
   }
-  if (!text) return { action: "drop", text, reason: "没有可朗读内容" };
+  if (options.smartClean) text = cleanSpeechText(text);
+  if (!text || (options.smartClean && !hasSpeechContent(text))) return { action: "drop", text, reason: "没有可朗读内容" };
   if (text.length < minLength) return { action: "drop", text, reason: "太短" };
   if (text.length > maxLength) return { action: "drop", text, reason: "太长" };
 
@@ -86,6 +88,10 @@ export function filterDanmaku(value, options = {}) {
 
   for (const word of words) {
     text = text.replace(new RegExp(escapeRegExp(word), "gi"), () => replacement);
+  }
+  if (options.smartClean) {
+    text = cleanSpeechText(text);
+    if (!hasSpeechContent(text)) return { action: "drop", text, reason: "没有可朗读内容" };
   }
   return { action: "mask", text, reason: "已替换违禁词" };
 }
@@ -382,12 +388,15 @@ export class BilibiliDanmakuReader extends EventEmitter {
       return;
     }
 
+    const cleanName = config.smartClean ? cleanSpeechText(item.name) : item.name;
     const prefix = renderSpeakTemplate(config.readPrefix, {
-      user: item.name,
+      user: config.smartClean
+        ? (!hasSpeechContent(cleanName) || MASKED_USER_NAME.test(item.name) ? FALLBACK_USER_NAME : cleanName)
+        : item.name,
       uid: item.uid,
       roomId: this.roomId
     });
-    const speakText = `${prefix}${filtered.text}`.trim();
+    const speakText = `${config.smartClean ? cleanSpeechText(prefix) : prefix}${filtered.text}`.trim();
     try {
       this.emit("speak", {
         text: speakText,

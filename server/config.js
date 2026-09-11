@@ -25,6 +25,7 @@ const DEFAULT_CONFIG = {
     enabled: false,
     roomId: 0,
     autoRead: true,
+    smartClean: false,
     cookie: '',
     minLength: 1,
     maxLength: 100,
@@ -153,6 +154,7 @@ export class ConfigStore {
       if (typeof local.autoStart !== 'boolean' || !Number.isInteger(local.timeoutSeconds) || local.timeoutSeconds < 10 || local.timeoutSeconds > 1800) throw new Error('加载/合成超时必须为 10–1800 秒');
       const bilibili = next.bilibili;
       if (typeof bilibili.enabled !== 'boolean' || typeof bilibili.autoRead !== 'boolean') throw new Error('无效的弹幕开关');
+      if (typeof bilibili.smartClean !== 'boolean') throw new Error('无效的智能清理开关');
       if (!Number.isInteger(bilibili.roomId) || bilibili.roomId < 0 || bilibili.roomId > 999999999999) throw new Error('B站房间号必须是正整数');
       if (bilibili.enabled && bilibili.roomId <= 0) throw new Error('启用弹幕监听前请填写有效的 B站房间号');
       if (typeof bilibili.cookie !== 'string' || bilibili.cookie.length > 20000 || bilibili.cookie.includes('\0')) throw new Error('无效的 B站 Cookie');
