@@ -35,6 +35,10 @@ The phone is only a controller. Synthesis and playback both happen on the PC, wh
 
 ## Quick start
 
+### Prebuilt bundles
+
+Every tagged release ships a runnable bundle for Linux and Windows. Download the archive for your system from [Releases](https://github.com/matsuzaka-yuki/gpt-sovits-live-webui/releases), unpack it, and start the app. The bundle already contains production dependencies and the built UI, so no `npm install` is needed.
+
 ### Linux
 
 ```bash
@@ -110,10 +114,14 @@ When started through `start.sh`, the log is also written to `data/server.log`.
 npm run dev:client   # Vite dev server for the UI
 npm run dev:server   # backend on port 9870
 npm run build        # build the client into client/dist
-node --test test/regression.test.js
+npm test             # unit tests
+npm run smoke        # boots the server and checks the HTTP surface
+npm run verify       # build + unit tests + smoke test
 ```
 
 The backend is Fastify with a WebSocket channel, the frontend is Vue 3 with Vite, and runtime data (config, cached audio, logs) lives in `data/`, which is git-ignored.
+
+GitHub Actions runs `npm run verify` on Linux and Windows with Node 20 and 22. Pushing a `v*` tag runs the same verification, then packages both platform bundles, smoke tests the packaged bundle, and publishes them to the GitHub release.
 
 ## Notes
 
@@ -161,6 +169,10 @@ This tool has no authentication. It is meant for a trusted local network, so do 
 - 手机和电脑在同一局域网。
 
 ## 快速开始
+
+### 预构建包
+
+每个带 tag 的 Release 都会提供 Linux 与 Windows 的可运行压缩包。到 [Releases](https://github.com/matsuzaka-yuki/gpt-sovits-live-webui/releases) 下载对应系统的压缩包，解压后直接启动即可。压缩包里已经包含生产依赖和构建好的前端，不需要再执行 `npm install`。
 
 ### Linux
 
@@ -237,10 +249,14 @@ npm start
 npm run dev:client   # 前端 Vite 开发服务器
 npm run dev:server   # 后端，端口 9870
 npm run build        # 构建前端到 client/dist
-node --test test/regression.test.js
+npm test             # 单元测试
+npm run smoke        # 启动真实服务并检查 HTTP 行为
+npm run verify       # 构建 + 单元测试 + 冒烟测试
 ```
 
 后端是 Fastify 加 WebSocket，前端是 Vue 3 + Vite，运行时数据（配置、音频缓存、日志）放在 `data/`，已加入 `.gitignore`。
+
+GitHub Actions 会在 Linux 和 Windows 上、Node 20 与 22 环境里执行 `npm run verify`。推送 `v*` tag 时会先跑同样的验证，然后打包两个平台的压缩包，在打包目录里再跑一次冒烟测试，最后发布到 GitHub Release。
 
 ## 说明
 

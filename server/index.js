@@ -186,10 +186,10 @@ export async function createServer() {
     return { success: true, devices };
   });
 
-  fastify.post("/api/tts", async (req) => {
+  fastify.post("/api/tts", async (req, reply) => {
     const { text, presetName, params } = req.body || {};
     if (typeof text !== 'string' || !text.trim()) {
-      return { success: false, message: "合成文本不能为空" };
+      return reply.code(400).send({ success: false, message: "合成文本不能为空" });
     }
     const task = queueManager.enqueue(text, { presetName, overrideParams: params });
     return { success: true, taskId: task.id };
