@@ -1,0 +1,15 @@
+# Dependencies
+node_modules/
+
+# Build output
+client/dist/
+
+# Runtime data: local config, cached audio, logs
+data/
+
+# Editor and OS files
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
