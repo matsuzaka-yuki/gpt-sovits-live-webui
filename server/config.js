@@ -162,7 +162,7 @@ export class ConfigStore {
         if (typeof word !== 'string' || word.length > 64 || word.includes('\0')) throw new Error('违禁词格式不正确');
       }
       if (typeof bilibili.replacement !== 'string' || bilibili.replacement.length > 12) throw new Error('违禁词替换内容过长');
-      if (typeof bilibili.readPrefix !== 'string' || bilibili.readPrefix.length > 80) throw new Error('朗读前缀过长');
+      if (typeof bilibili.readPrefix !== 'string' || bilibili.readPrefix.length > 80) throw new Error('朗读模板过长（最多 80 字）');
       if (!Number.isInteger(bilibili.minLength) || bilibili.minLength < 1 || bilibili.minLength > 100) throw new Error('弹幕最短字数必须为 1–100');
       if (!Number.isInteger(bilibili.maxLength) || bilibili.maxLength < 1 || bilibili.maxLength > 500 || bilibili.maxLength < bilibili.minLength) throw new Error('弹幕最长字数必须不小于最短字数，且不超过 500');
       if (!Number.isFinite(bilibili.rateLimitSeconds) || bilibili.rateLimitSeconds < 0 || bilibili.rateLimitSeconds > 3600) throw new Error('同一用户发送间隔必须为 0–3600 秒');

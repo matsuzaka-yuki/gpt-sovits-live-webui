@@ -14,6 +14,11 @@ const MAX_LOGS = 40;
 const MAX_RECENT = 20;
 const URL_PATTERN = /https?:\/\/\S+|www\.\S+/gi;
 const EMOTICON_PATTERN = /\[[^\[\]]{1,16}\]/g;
+const TEMPLATE_PATTERN = /\{(user|name|uid|room)\}/gi;
+const PROTOCOL_UNKNOWN_USER = "未知用户";
+const FALLBACK_USER_NAME = "观众";
+// B 站会给未登录访客返回 M***、空*** 这种打码昵称，朗读时替换成通用称呼。
+const MASKED_USER_NAME = /\*{2,}/;
 
 function normalizeText(value) {
   return String(value ?? "")
@@ -83,6 +88,31 @@ export function filterDanmaku(value, options = {}) {
     text = text.replace(new RegExp(escapeRegExp(word), "gi"), () => replacement);
   }
   return { action: "mask", text, reason: "已替换违禁词" };
+}
+
+// 朗读模板：把 {user} {name} {uid} {room} 替换成真实弹幕信息，
+// 这样前缀可以是动态的，例如 “{user}说：”。
+export function renderSpeakTemplate(template, context = {}) {
+  const source = typeof template === "string" ? template : "";
+  if (!source) return "";
+  const rawName = normalizeText(context.user);
+  const userName = !rawName || rawName === PROTOCOL_UNKNOWN_USER || MASKED_USER_NAME.test(rawName)
+    ? FALLBACK_USER_NAME
+    : clampText(rawName, 24);
+  const rendered = source.replace(TEMPLATE_PATTERN, (match, key) => {
+    switch (String(key).toLowerCase()) {
+      case "user":
+      case "name":
+        return userName;
+      case "uid":
+        return String(Number(context.uid) || "");
+      case "room":
+        return String(Number(context.roomId) || "");
+      default:
+        return match;
+    }
+  });
+  return normalizeText(rendered);
 }
 
 export class BilibiliDanmakuReader extends EventEmitter {
@@ -335,7 +365,12 @@ export class BilibiliDanmakuReader extends EventEmitter {
       return;
     }
 
-    const speakText = `${config.readPrefix || ""}${filtered.text}`.trim();
+    const prefix = renderSpeakTemplate(config.readPrefix, {
+      user: item.name,
+      uid: item.uid,
+      roomId: this.roomId
+    });
+    const speakText = `${prefix}${filtered.text}`.trim();
     try {
       this.emit("speak", {
         text: speakText,

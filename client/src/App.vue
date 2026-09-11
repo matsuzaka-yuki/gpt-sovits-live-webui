@@ -93,6 +93,25 @@ function wordsText(list) { return (list || []).join('\n'); }
 function setWords(event) {
   config.value.bilibili.bannedWords = event.target.value.split(/[\n,，]+/).map(word => word.trim()).filter(Boolean);
 }
+const speakTemplatePresets = [
+  { label: '不朗读用户名', value: '' },
+  { label: '用户名说：', value: '{user}说：' },
+  { label: '用户名：', value: '{user}：' },
+  { label: '观众用户名说：', value: '观众{user}说：' },
+  { label: '来自用户名的弹幕：', value: '来自{user}的弹幕：' },
+  { label: '弹幕说：', value: '弹幕说：' }
+];
+function setSpeakTemplate(value) { config.value.bilibili.readPrefix = value; }
+const speakPreview = computed(() => {
+  const template = config.value?.bilibili?.readPrefix || '';
+  const sample = '今天直播真好看';
+  if (!template) return sample;
+  const rendered = template
+    .replace(/\{(user|name)\}/gi, '小明')
+    .replace(/\{uid\}/gi, '12345678')
+    .replace(/\{room\}/gi, String(config.value?.bilibili?.roomId || '5928158'));
+  return (rendered + sample).replace(/\s+/g, ' ').trim();
+});
 async function controlBilibili(action) {
   if (action === 'start' && !(await save())) return;
   await run(async () => {
@@ -233,7 +252,10 @@ onUnmounted(() => { disposed = true; clearInterval(poll); clearTimeout(retry); s
             <label class="check"><input type="checkbox" v-model="config.bilibili.skipCommands">忽略以 !、/、# 开头的命令弹幕</label>
             <label class="check"><input type="checkbox" v-model="config.bilibili.stripUrls">过滤链接后再朗读</label>
             <label class="check"><input type="checkbox" v-model="config.bilibili.stripEmoticons">过滤 [表情] 标签后再朗读</label>
-            <label>朗读前缀（可选）<input v-model="config.bilibili.readPrefix" placeholder="例如：弹幕说"></label>
+            <label>朗读模板（可选，支持 {user} 用户名、{uid} 用户ID、{room} 房间号）<input v-model="config.bilibili.readPrefix" placeholder="例如：{user}说："></label>
+            <label>快速选择模板<select :value="config.bilibili.readPrefix || ''" @change="setSpeakTemplate($event.target.value)"><option v-for="item in speakTemplatePresets" :key="item.value" :value="item.value">{{ item.label }}</option><option v-if="!speakTemplatePresets.some(item => item.value === (config.bilibili.readPrefix || ''))" :value="config.bilibili.readPrefix">自定义</option></select></label>
+            <p class="muted">朗读效果：{{ speakPreview }}</p>
+            <p class="muted">B 站对未登录访客会隐藏昵称（显示成 M***），此时会朗读成“观众”。想朗读真实用户名，请在下面填写自己的 Cookie。</p>
             <label>B站 Cookie（可选）<textarea class="short" v-model="config.bilibili.cookie" placeholder="遇到风控时填写 SESSDATA=...; bili_jct=...; buvid3=..."></textarea></label>
           </details>
           <details v-if="bilibili.recent?.length"><summary>最近弹幕</summary><div class="danmaku-list"><div v-for="item in bilibili.recent" :key="item.time + item.text" class="danmaku-item"><span>{{ item.user }}</span><strong>{{ item.text }}</strong><em>{{ item.action }}{{ item.reason ? ' · ' + item.reason : '' }}</em></div></div></details>

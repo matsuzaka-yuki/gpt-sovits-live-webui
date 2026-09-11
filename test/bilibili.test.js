@@ -1,6 +1,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { BilibiliDanmakuReader, extractDanmaku, filterDanmaku } from '../server/bilibili.js';
+import { BilibiliDanmakuReader, extractDanmaku, filterDanmaku, renderSpeakTemplate } from '../server/bilibili.js';
+
+test('renders dynamic speak templates with real sender information', () => {
+  const context = { user: '测试用户', uid: 123456, roomId: 5928158 };
+  assert.equal(renderSpeakTemplate('', context), '');
+  assert.equal(renderSpeakTemplate('弹幕说：', context), '弹幕说：');
+  assert.equal(renderSpeakTemplate('{user}说：', context), '测试用户说：');
+  assert.equal(renderSpeakTemplate('{name}：', context), '测试用户：');
+  assert.equal(renderSpeakTemplate('观众{user}说：', context), '观众测试用户说：');
+  assert.equal(renderSpeakTemplate('{uid}-{room}', context), '123456-5928158');
+  assert.equal(renderSpeakTemplate('{user}说：', { user: '未知用户', uid: 0, roomId: 0 }), '观众说：');
+  assert.equal(renderSpeakTemplate('{user}说：', { user: '   ', uid: 0, roomId: 0 }), '观众说：');
+  assert.equal(renderSpeakTemplate('{user}说：', { user: 'M***', uid: 0, roomId: 0 }), '观众说：');
+  assert.equal(renderSpeakTemplate('{user}说：', { user: '空***', uid: 0, roomId: 0 }), '观众说：');
+  assert.equal(renderSpeakTemplate('{nickname}说：', context), '{nickname}说：');
+});
 
 test('extracts danmaku text and filters banned words', () => {
   const message = {
@@ -65,7 +80,7 @@ test('reader connects with a visitor session and sends filtered comments to the 
         filterMode: 'mask',
         bannedWords: ['赌博'],
         replacement: '*',
-        readPrefix: '弹幕说：'
+        readPrefix: '{user}说：'
       }
     })
   };
@@ -97,7 +112,7 @@ test('reader connects with a visitor session and sends filtered comments to the 
   danmaku.data = { info: [[0, 1, 25], '这是赌博广告', [123, '测试用户']] };
   socket.dispatchEvent(danmaku);
   assert.equal(spoken.length, 1);
-  assert.equal(spoken[0].text, '弹幕说：这是*广告');
+  assert.equal(spoken[0].text, '测试用户说：这是*广告');
   assert.equal(spoken[0].user, '测试用户');
   assert.equal(reader.status().stats.spoken, 1);
 

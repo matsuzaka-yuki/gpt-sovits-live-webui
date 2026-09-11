@@ -102,7 +102,10 @@ Room ID, filters and limits are stored in `data/config.json` with the rest of th
 | Banned words | One word per line or comma-separated. `mask` replaces matches with `*`; `drop` ignores the whole comment. |
 | Queue cap | Stop adding comments when this many tasks are already waiting. Manual submissions continue to work. |
 | Rate / duplicate windows | Suppress repeated messages from one user and comments that repeat too quickly. |
-| Advanced filters | Ignore `!`, `/`, `#` commands, strip URLs and `[emoticon]` tags, and add an optional spoken prefix. |
+| Advanced filters | Ignore `!`, `/`, `#` commands, strip URLs and `[emoticon]` tags, and set an optional spoken prefix. |
+| Spoken template | A dynamic prefix that can include the sender name: `{user}` (nickname), `{name}` (alias), `{uid}` (user id) and `{room}` (room id). For example `{user}说：` is read as `小明说：你好`. Pick one from the quick-select list or type your own; the panel previews the result live. |
+
+Bilibili hides sender nicknames from anonymous visitors, so the default visitor session receives masked names like `M***`. Those comments are read as `观众` instead of the placeholder. To hear real nicknames, paste your own Cookie into Advanced Settings; the listener then runs as your logged-in account and the full name is delivered. A custom prefix such as `观众{user}说：` is a good compromise when you would rather not log in.
 
 The listener reconnects with exponential backoff. Its status, counters, connection log and the last filtered comments are visible in Settings. Changing the room, Cookie or enabled state restarts the listener; changing filters applies to the next comment without dropping the connection. The room owner can leave this feature disabled and use the phone composer independently.
 
@@ -272,7 +275,10 @@ npm start
 | 违禁词 | 每行一个或用逗号分隔。`替换后朗读` 会把命中内容替换为 `*`，`整条忽略` 会跳过整条弹幕。 |
 | 队列上限 | 等待合成的任务达到该数量后，不再继续加入弹幕；手动提交的合成不受影响。 |
 | 频率 / 重复窗口 | 限制同一用户连续发送和重复弹幕进入朗读。 |
-| 高级过滤 | 忽略以 `!`、`/`、`#` 开头的命令，过滤链接和 `[表情]` 标签，并可添加朗读前缀。 |
+| 高级过滤 | 忽略以 `!`、`/`、`#` 开头的命令，过滤链接和 `[表情]` 标签，并可设置朗读前缀。 |
+| 朗读模板 | 前缀可以是动态的，支持 `{user}`（用户名）、`{name}`（同上）、`{uid}`（用户 ID）和 `{room}`（房间号）。例如填 `{user}说：`，弹幕“你好”会朗读成“小明说：你好”。面板里有快速选择，也可以自己写模板，并实时预览效果。 |
+
+B 站对未登录访客会隐藏昵称，默认访客会话收到的昵称是 `M***` 这种打码形式。这类弹幕会朗读成“观众”，而不会把星号读出来。想朗读真实用户名，请在高级设置里填写自己的 Cookie，监听会以登录身份运行，就能拿到完整昵称。不想登录的话，可以用 `观众{user}说：` 这种模板作为折中。
 
 监听器断开后会按指数退避自动重连。设置页会显示连接状态、计数、日志和最近过滤结果。修改房间号、Cookie 或启用状态会重启监听；修改过滤规则只会作用于下一条弹幕，不会断开连接。主播不需要该功能时保持关闭即可，手机手动打字合成不受影响。
 
