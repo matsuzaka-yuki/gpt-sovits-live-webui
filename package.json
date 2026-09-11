@@ -1,6 +1,6 @@
 {
   "name": "gpt-sovits-live-webui",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "description": "Cross-platform mobile-friendly live WebUI for GPT-SoVITS with local playback",
   "main": "server/index.js",
   "scripts": {
