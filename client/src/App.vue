@@ -44,7 +44,8 @@ function connect() {
   socket.onopen = () => { connected.value = true; };
   socket.onmessage = event => {
     const msg = JSON.parse(event.data);
-    if (msg.data) state.value = msg.data;
+    // B 站状态也使用 data 字段，只有队列消息才能更新播放状态。
+    if (msg.type === 'state' && msg.data) state.value = msg.data;
     if (msg.config) receiveConfig(msg.config);
     if (msg.bilibili) bilibili.value = msg.bilibili;
     if (msg.type === 'bilibili') bilibili.value = msg.data;
