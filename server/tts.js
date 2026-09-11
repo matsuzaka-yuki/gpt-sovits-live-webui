@@ -4,6 +4,7 @@ import path from "node:path";
 import os from "node:os";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
+import { LocalInference } from './local-inference.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -12,6 +13,7 @@ const audioCacheDir = path.resolve(__dirname, "..", "data", "audio_cache");
 export class TtsService {
   constructor(configStore) {
     this.configStore = configStore;
+    this.local = new LocalInference(configStore);
     this.ensureDir();
   }
 
@@ -28,7 +30,7 @@ export class TtsService {
       ...overrideParams
     };
     if (typeof text !== 'string' || !text.trim() || text.length > 3000) throw new Error('请输入 1–3000 字的文本');
-    if (!params.ref_audio_path?.trim()) throw new Error('当前音色缺少参考音频，请在设置中导入有效的 GUI 预设或填写参考音频路径。');
+    if (!params.ref_audio_path?.trim()) throw new Error('当前音色缺少参考音频，请在设置中填写参考音频路径。');
 
     return {
       text: text.trim(),
@@ -64,6 +66,18 @@ export class TtsService {
     const config = this.configStore.get();
     const endpoint = config.apiEndpoint || "http://127.0.0.1:9880/tts";
     const body = this.buildRequestBody(text, overrideParams);
+    if (config.inferenceMode === 'local') {
+      await this.ensureDir();
+      const id = randomUUID();
+      const filename = `tts_${Date.now()}_${id.slice(0, 8)}.wav`;
+      const filePath = path.join(audioCacheDir, filename);
+      try {
+        await this.local.synthesize(body, filePath, signal);
+        const buffer = await fs.readFile(filePath);
+        if (buffer.length <= 44 || buffer.toString('ascii', 0, 4) !== 'RIFF' || buffer.toString('ascii', 8, 12) !== 'WAVE') throw new Error('本地推理未生成有效 WAV 音频');
+        return { id, filename, filePath, url: `/api/audio/${filename}`, size: buffer.length, text };
+      } catch (error) { await fs.rm(filePath, { force: true }); throw error; }
+    }
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 120000); // 2min timeout
@@ -130,8 +144,9 @@ export class TtsService {
 
   async checkApiStatus() {
     const config = this.configStore.get();
-    const base = new URL(config.apiEndpoint).origin;
+    if (config.inferenceMode === 'local') return { ok: this.local.state === 'ready', ...this.local.status() };
     try {
+      const base = new URL(config.apiEndpoint).origin;
       const res = await fetch(`${base.replace(/\/+$/, "")}/openapi.json`, {
         signal: AbortSignal.timeout(3000)
       });

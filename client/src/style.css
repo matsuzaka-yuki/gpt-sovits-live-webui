@@ -128,3 +128,4 @@ h1{font-size:25px}
 }
 @media(prefers-reduced-motion:reduce){*{animation:none!important}
 }
+.inference-log { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 280px; overflow: auto; font-size: 12px; background: #f3f5f3; padding: 12px; }

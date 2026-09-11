@@ -2,7 +2,7 @@
 
 **English** | [简体中文](#简体中文)
 
-A LAN companion console for [GPT-SoVITS](https://github.com/RVC-Boss/GPT-SoVITS). Type on your phone, the voice is synthesized by your existing GPT-SoVITS API, and the audio plays on your PC, so OBS or any streaming tool can capture it. The phone needs no app, and locking it does not interrupt playback.
+A configurable LAN voice console for [GPT-SoVITS](https://github.com/RVC-Boss/GPT-SoVITS). Type on your phone and play synthesized speech on your PC for OBS or livestreaming. Choose direct local inference without a GUI or HTTP API, or connect to an existing GPT-SoVITS API. The phone needs no app, and locking it does not interrupt playback.
 
 ![Desktop preview](docs/preview-desktop.png)
 
@@ -19,7 +19,7 @@ A LAN companion console for [GPT-SoVITS](https://github.com/RVC-Boss/GPT-SoVITS)
 ## How it works
 
 ```
-phone browser ──HTTP/WebSocket──▶ Fastify server (9870) ──▶ GPT-SoVITS API (9880)
+phone browser ──HTTP/WebSocket──▶ Fastify server (9870) ──▶ local Python worker / external API
                                        │
                                        └──▶ mpv / ffplay / SoundPlayer ──▶ PC speakers ──▶ OBS
 ```
@@ -29,7 +29,7 @@ The phone is only a controller. Synthesis and playback both happen on the PC, wh
 ## Requirements
 
 - **Node.js 20.19+ or 22.12+** (required by Vite 8).
-- A running **GPT-SoVITS API** on port 9880 (for example `gsv_api_gui.py` or `api_v2.py`).
+- Local mode: a **GPT-SoVITS installation**, its working Python environment, inference YAML and model files. External mode: a running **GPT-SoVITS API**. Model weights and Python/PyTorch are not included in the WebUI bundles.
 - A local player: `mpv` is preferred on Linux, `ffplay` also works. Windows falls back to PowerShell `SoundPlayer`.
 - Phone and PC on the same LAN.
 
@@ -60,6 +60,18 @@ npm start
 The console prints the local and LAN addresses on startup. Open the LAN address (for example `http://192.168.8.238:9870`) on your phone, or scan the QR code from the phone dialog in the UI.
 
 ## Configuration
+
+### Inference modes and persistent settings
+
+New installations default to **local inference**. Existing configurations without a mode retain **external API** mode. In Settings, select the mode and save. Settings, voice presets, reference audio parameters, common phrases and output preferences persist in `data/config.json`; keep this directory when upgrading. Saves use atomic replacement, and unreadable configuration files produce an explicit error rather than silently resetting your settings.
+
+For local inference, configure the GPT-SoVITS root directory, the Python executable from its environment (Windows: `runtime/python.exe` or `.venv/Scripts/python.exe`; Linux: `.venv/bin/python`), and the inference YAML. Optional GPT/SoVITS weight overrides, device, precision, timeout and startup loading are available. Relative model, YAML and reference paths resolve against the GPT-SoVITS root. The YAML provides model version, BERT and HuBERT paths. Choose compatible weights and version.
+
+Click **Save and load model**, or submit your first synthesis request to load on demand. The app owns a persistent Python worker that imports `TTS_infer_pack.TTS` directly and communicates over process pipes. It does not start or call `api_v2.py`, a GUI, or an HTTP inference endpoint. Worker logs and state appear in Settings. Stopping an active synthesis terminates the worker; the next request reloads the model. Normal app shutdown releases its worker. The upstream YAML is preserved; runtime configuration is written to `data/local-inference.yaml`.
+
+For external mode, enter the `/tts` URL. Optional GUI preset import remains available. You can also create, overwrite and delete voice presets directly in Settings without any GUI configuration. Presets contain reference and synthesis parameters; models are configured separately. Clear the queue before changing the inference connection or models.
+
+Local mode still requires GPT-SoVITS and its dependencies; it removes the GUI/API dependency, not the inference engine. CI checks app behavior on Windows and Linux; GPU compatibility depends on the installed GPT-SoVITS/PyTorch environment.
 
 Settings are stored in `data/config.json` and can be edited from the Settings tab:
 
@@ -137,7 +149,7 @@ This tool has no authentication. It is meant for a trusted local network, so do 
 
 [English](#gpt-sovits-live-webui) | **简体中文**
 
-给 [GPT-SoVITS](https://github.com/RVC-Boss/GPT-SoVITS) 用的局域网直播配音控制台。手机负责打字，合成由你已经在跑的 GPT-SoVITS API 完成，声音从电脑本地播放，OBS 或直播软件可以直接捕获。手机不用装 App，锁屏也不影响电脑继续出声。
+可配置的 [GPT-SoVITS](https://github.com/RVC-Boss/GPT-SoVITS) 局域网直播配音控制台。手机负责打字，可选择不依赖 GUI 和 HTTP API 的独立本地推理，也可连接现有 GPT-SoVITS API。声音从电脑播放，供 OBS 或直播软件捕获；手机不用装 App，锁屏也不影响电脑继续出声。
 
 ![界面预览](docs/preview-desktop.png)
 
@@ -154,7 +166,7 @@ This tool has no authentication. It is meant for a trusted local network, so do 
 ## 工作原理
 
 ```
-手机浏览器 ──HTTP/WebSocket──▶ Fastify 服务 (9870) ──▶ GPT-SoVITS API (9880)
+手机浏览器 ──HTTP/WebSocket──▶ Fastify 服务 (9870) ──▶ 本地 Python 推理 / 外部 API
                                      │
                                      └──▶ mpv / ffplay / SoundPlayer ──▶ 电脑扬声器 ──▶ OBS
 ```
@@ -164,7 +176,7 @@ This tool has no authentication. It is meant for a trusted local network, so do 
 ## 环境要求
 
 - **Node.js 20.19+ 或 22.12+**（Vite 8 的要求）。
-- 已启动的 **GPT-SoVITS API**，监听 9880（例如 `gsv_api_gui.py` 或 `api_v2.py`）。
+- 本地模式需要已安装的 **GPT-SoVITS**、可用的 Python 环境、推理 YAML 和模型；外部模式需要已启动的 **GPT-SoVITS API**。WebUI 发布包不包含模型与 Python/PyTorch。
 - 本地播放器：Linux 推荐 `mpv`，也支持 `ffplay`；Windows 兜底使用 PowerShell `SoundPlayer`。
 - 手机和电脑在同一局域网。
 
@@ -195,6 +207,18 @@ npm start
 启动后控制台会打印本机与局域网地址。手机打开局域网地址（例如 `http://192.168.8.238:9870`），或在界面的「手机连接」弹窗里扫码。
 
 ## 配置说明
+
+### 推理模式与持久化
+
+全新安装默认使用**独立本地推理**；旧配置没有模式字段时继续使用**外部 API**。在设置页选择模式并保存，重启后继续使用。运行模式、音色预设、参考音频参数、常用语和播放设置保存在 `data/config.json`，升级时保留整个 `data` 目录。配置采用原子替换保存；文件损坏会明确报错，不会静默恢复默认值并覆盖它。
+
+本地模式需填写 GPT-SoVITS 根目录、对应环境的 Python 可执行文件（Windows 通常为 `runtime/python.exe` 或 `.venv/Scripts/python.exe`，Linux 为 `.venv/bin/python`）以及推理 YAML。可选配置包括 GPT/SoVITS 权重覆盖、运行设备、精度、超时和启动时加载。相对模型、YAML 和参考音频路径均以 GPT-SoVITS 根目录为准。模型版本、BERT 和 HuBERT 路径由 YAML 提供，请使用相互兼容的版本与权重。
+
+点击“保存并加载模型”，或首次合成时按需加载。项目直接通过常驻 Python 进程调用 `TTS_infer_pack.TTS`，不启动也不请求 GUI、`api_v2.py` 或 HTTP 推理接口。设置页可查看状态和日志。取消正在执行的本地合成会终止进程，下次请求重新加载模型；正常退出控制台会释放进程。原推理 YAML 不会被修改，运行时配置另存为 `data/local-inference.yaml`。
+
+外部模式填写 `/tts` 地址即可，仍可选择导入 GUI 预设。两种模式都支持在设置页直接新建、覆盖和删除音色预设，不再需要 GUI 配置文件。音色预设保存参考音频和合成参数，模型单独配置。修改推理连接或模型前请先清空队列。
+
+独立模式仍需要 GPT-SoVITS 引擎和依赖。Windows/Linux 自动验证覆盖应用行为；GPU 兼容性取决于所安装的 GPT-SoVITS/PyTorch 环境。
 
 配置保存在 `data/config.json`，也可以在「设置」页修改：
 

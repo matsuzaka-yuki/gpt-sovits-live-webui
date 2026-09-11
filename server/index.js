@@ -131,6 +131,7 @@ export async function createServer() {
 
     return {
       success: true,
+      inference: { mode: config.inferenceMode, ...ttsService.local.status() },
       apiConnected: apiStatus.ok,
       apiDetails: apiStatus,
       localIps,
@@ -165,12 +166,20 @@ export async function createServer() {
 
   fastify.post("/api/config", async (req) => {
     const patch = req.body || {};
+    const before = configStore.get();
+    const inferenceChanged = (patch.inferenceMode !== undefined && patch.inferenceMode !== before.inferenceMode) ||
+      (patch.localInference && JSON.stringify({ ...before.localInference, ...patch.localInference }) !== JSON.stringify(before.localInference)) ||
+      (patch.apiEndpoint !== undefined && patch.apiEndpoint !== before.apiEndpoint);
+    if (inferenceChanged && queueManager.queue.length) throw new Error('请先停止并清空队列，再修改推理设置');
     const updated = await configStore.update(patch);
+    if (inferenceChanged) await ttsService.local.stop();
+    if (updated.inferenceMode === 'local' && updated.localInference.autoStart && inferenceChanged) ttsService.local.start().catch(console.error);
     broadcast({ type: "config", config: updated });
     return { success: true, config: updated };
   });
 
   fastify.post("/api/config/import-gag", async (req) => {
+    if (queueManager.queue.length) throw new Error('请先停止并清空队列，再导入配置');
     const { path: gagPath } = req.body || {};
     const ok = await configStore.importGagConfig(gagPath);
     if (!ok) {
@@ -184,6 +193,17 @@ export async function createServer() {
   fastify.get("/api/devices", async () => {
     const devices = await audioPlayer.getDevices();
     return { success: true, devices };
+  });
+
+  fastify.post('/api/inference/start', async () => {
+    if (configStore.get().inferenceMode !== 'local') throw new Error('当前是外部 API 模式');
+    if (ttsService.local.state !== 'loading') ttsService.local.start().catch(console.error);
+    return { success: true, inference: ttsService.local.status() };
+  });
+  fastify.post('/api/inference/stop', async () => {
+    queueManager.stopAndClearAll();
+    await ttsService.local.stop();
+    return { success: true, inference: ttsService.local.status() };
   });
 
   fastify.post("/api/tts", async (req, reply) => {
@@ -224,7 +244,8 @@ export async function createServer() {
     });
   }
 
-  fastify.addHook('onClose', async () => { queueManager.stopAndClearAll(); for (const socket of wsClients) socket.close(); });
+  fastify.addHook('onClose', async () => { queueManager.stopAndClearAll(); await ttsService.local.stop(); for (const socket of wsClients) socket.close(); });
+  if (configStore.get().inferenceMode === 'local' && configStore.get().localInference.autoStart) ttsService.local.start().catch(console.error);
   return { fastify, configStore, queueManager };
 }
 
@@ -236,6 +257,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const host = process.env.HOST || config.host || "0.0.0.0";
 
   await fastify.listen({ port, host });
+  for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, async () => { await fastify.close(); process.exit(0); });
   const ips = getLocalIpAddresses();
   console.log(`
 [GPT-SoVITS 直播辅助 WebUI 已启动]`);

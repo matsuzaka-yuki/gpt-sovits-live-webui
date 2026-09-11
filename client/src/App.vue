@@ -5,6 +5,8 @@ const text = ref(''), tab = ref('studio'), error = ref(''), notice = ref('');
 const connected = ref(false), apiOnline = ref(false), busy = ref(false);
 const devices = ref([]), qr = ref(''), address = ref(''), showPhone = ref(false), firewall = ref(null);
 const selected = ref('_custom'), phrase = ref('');
+const inference = ref({ state: 'stopped', logs: '' }), presetName = ref('');
+const inferenceLabels = { stopped: '未加载，首次合成时自动加载', loading: '正在加载模型', ready: '模型已就绪', error: '加载或运行失败' };
 let socket, retry, poll, disposed = false;
 const ready = computed(() => Boolean(config.value?.activeParams?.ref_audio_path?.trim()));
 const pending = computed(() => state.value.queue.filter(t => t.id !== state.value.currentTask?.id));
@@ -27,6 +29,7 @@ async function refresh(initial = false) {
   try {
     const result = await request('/api/status', undefined, 'GET');
     apiOnline.value = result.apiConnected;
+    inference.value = result.inference || inference.value;
     qr.value = result.qrDataUrl; address.value = result.accessUrl;
     firewall.value = result.firewall || null;
     if (initial) { receiveConfig(result.config); state.value = result.state; }
@@ -68,10 +71,30 @@ function choosePreset() {
   }
 }
 async function save() {
+  let saved = false;
   await run(async () => {
     const result = await request('/api/config', config.value);
     receiveConfig(result.config); notice.value = '设置已保存';
+    saved = true;
   });
+  return saved;
+}
+async function controlInference(action) {
+  if (action === 'start' && !(await save())) return;
+  await run(async () => { await request('/api/inference/' + action); await refresh(); });
+}
+async function savePreset() {
+  const name = presetName.value.trim();
+  if (!name || ['_custom', '__proto__', 'constructor', 'prototype'].includes(name)) { error.value = '请输入有效的音色名称'; return; }
+  config.value.presets[name] = JSON.parse(JSON.stringify(config.value.activeParams));
+  config.value.currentPresetName = name;
+  if (await save()) { presetName.value = ''; notice.value = '音色预设已保存：' + name; }
+}
+async function deletePreset() {
+  if (selected.value === '_custom') return;
+  delete config.value.presets[selected.value];
+  config.value.currentPresetName = '_custom';
+  await save();
 }
 async function importPresets() {
   await run(async () => {
@@ -88,7 +111,7 @@ async function addPhrase() {
 onMounted(async () => {
   await refresh(true); connect();
   run(async () => { devices.value = (await request('/api/devices', undefined, 'GET')).devices; });
-  poll = setInterval(() => refresh(), 15000);
+  poll = setInterval(() => refresh(), 3000);
 });
 onUnmounted(() => { disposed = true; clearInterval(poll); clearTimeout(retry); socket?.close(); });
 </script>
@@ -131,12 +154,40 @@ onUnmounted(() => { disposed = true; clearInterval(poll); clearTimeout(retry); s
       </main>
       <main v-else class="settings panel">
         <div class="section-top"><div><div class="eyebrow">偏好设置</div><h1>声音与连接</h1></div><button class="primary" @click="save">保存设置</button></div>
-        <fieldset><legend>音色参数</legend><p class="muted">导入 GUI 工作目录里的 GAG_config.json。模型仍使用现有 API 已加载的模型；导入不会切换模型。</p><label>GUI 配置文件路径<div class="inline"><input v-model="config.gagConfigPath" placeholder="例如 D:\\GPT-SoVITS\\GAG_config.json"><button @click="importPresets">导入预设</button></div></label><label>当前音色<select v-model="selected" @change="choosePreset"><option value="_custom">自定义</option><option v-for="(_, name) in config.presets" :key="name" :value="name">{{ name }}</option></select></label><label>参考音频路径<input v-model="config.activeParams.ref_audio_path" placeholder="GPT-SoVITS 服务能读取的音频文件路径"></label><label>参考音频对应文字<textarea class="short" v-model="config.activeParams.prompt_text" placeholder="与参考音频内容一致"></textarea></label>
+        <fieldset><legend>推理模式</legend>
+          <label>合成方式<select v-model="config.inferenceMode"><option value="local">独立本地推理 · 无需 GUI / API</option><option value="external">连接外部 GPT-SoVITS API</option></select></label>
+          <p class="muted">设置保存在电脑的 data/config.json，重启后继续使用。切换模式或模型前请先清空队列。</p>
+          <template v-if="config.inferenceMode === 'local'">
+            <p class="muted">使用已安装的 GPT-SoVITS Python 环境和模型，直接在电脑推理。无需启动 GUI 或 api_v2.py。</p>
+            <label>GPT-SoVITS 根目录<input v-model="config.localInference.rootPath" placeholder="例如 D:\GPT-SoVITS 或 /home/user/GPT-SoVITS"></label>
+            <label>Python 可执行文件<input v-model="config.localInference.pythonPath" placeholder="例如 D:\GPT-SoVITS\runtime\python.exe 或 /home/user/GPT-SoVITS/.venv/bin/python"></label>
+            <label>推理配置 YAML<input v-model="config.localInference.configPath" placeholder="GPT_SoVITS/configs/tts_infer.yaml"></label>
+            <label>GPT 模型路径（可选）<input v-model="config.localInference.gptWeights" placeholder="留空使用 YAML 配置中的模型"></label>
+            <label>SoVITS 模型路径（可选）<input v-model="config.localInference.sovitsWeights" placeholder="留空使用 YAML 配置中的模型"></label>
+            <p class="muted">相对路径以 GPT-SoVITS 根目录为准。YAML 包含模型版本、BERT 和 HuBERT 路径；此控制台不会修改原 YAML。</p>
+            <div class="two"><label>运行设备<select v-model="config.localInference.device"><option value="auto">使用 YAML 设置</option><option value="cpu">CPU</option><option value="cuda">CUDA 显卡</option><option value="cuda:0">CUDA 显卡 0</option><option value="cuda:1">CUDA 显卡 1</option><option value="mps">MPS（需要模型支持）</option></select></label><label>计算精度<select v-model="config.localInference.precision"><option value="auto">使用 YAML 设置</option><option value="full">全精度</option><option value="half">半精度</option></select></label></div>
+            <label>加载和合成超时（秒）<input type="number" min="10" max="1800" v-model.number="config.localInference.timeoutSeconds"></label>
+            <label class="check"><input type="checkbox" v-model="config.localInference.autoStart">启动控制台时自动加载模型</label>
+            <p role="status">{{ inferenceLabels[inference.state] }}{{ inference.device ? ' · ' + inference.device : '' }}</p>
+            <p v-if="inference.error" class="task-error">{{ inference.error }}</p>
+            <div class="inline"><button :disabled="inference.state === 'loading'" @click="controlInference('start')">保存并加载模型</button><button @click="controlInference('stop')">停止推理并清空队列</button></div>
+            <details v-if="inference.logs"><summary>推理日志</summary><pre class="inference-log">{{ inference.logs }}</pre></details>
+          </template>
+          <label v-else>API 地址<input v-model="config.apiEndpoint" placeholder="http://127.0.0.1:9880/tts"></label>
+        </fieldset>
+        <fieldset><legend>音色参数</legend><p class="muted">填写参考音频和文字后即可保存为音色预设，无需 GUI。预设保存参考音频与合成参数，不切换模型。</p><label>当前音色<select v-model="selected" @change="choosePreset"><option value="_custom">自定义</option><option v-for="(_, name) in config.presets" :key="name" :value="name">{{ name }}</option></select></label><label>参考音频路径<input v-model="config.activeParams.ref_audio_path" placeholder="推理电脑能读取的音频文件路径"></label><label>参考音频对应文字<textarea class="short" v-model="config.activeParams.prompt_text" placeholder="与参考音频内容一致"></textarea></label>
           <div class="two"><label>参考语言<select v-model="config.activeParams.prompt_lang"><option value="all_zh">中文</option><option value="zh">中英混合</option><option value="en">英语</option><option value="ja">日语</option></select></label><label>合成语言<select v-model="config.activeParams.text_lang"><option value="all_zh">中文</option><option value="zh">中英混合</option><option value="en">英语</option><option value="ja">日语</option></select></label></div>
           <label>文本切分<select v-model="config.activeParams.text_split_method"><option value="cut0">不切分</option><option value="cut1">每四句切分</option><option value="cut2">约五十字切分</option><option value="cut3">按中文句号切分</option><option value="cut4">按英文句号切分</option><option value="cut5">按标点切分</option></select></label>
+          <details><summary>高级合成参数</summary>
+            <div class="two"><label>Top K<input type="number" min="1" v-model.number="config.activeParams.top_k"></label><label>Top P<input type="number" min="0.01" max="1" step="0.05" v-model.number="config.activeParams.top_p"></label></div>
+            <div class="two"><label>Temperature<input type="number" min="0.01" max="2" step="0.05" v-model.number="config.activeParams.temperature"></label><label>随机种子（-1 为随机）<input type="number" min="-1" v-model.number="config.activeParams.seed"></label></div>
+            <div class="two"><label>批大小<input type="number" min="1" max="100" v-model.number="config.activeParams.batch_size"></label><label>重复惩罚<input type="number" min="1" step="0.05" v-model.number="config.activeParams.repetition_penalty"></label></div>
+            <label class="check"><input type="checkbox" v-model="config.activeParams.parallel_infer">并行推理</label><label class="check"><input type="checkbox" v-model="config.activeParams.split_bucket">分桶处理</label>
+          </details>
+          <label>保存音色名称<div class="inline"><input v-model="presetName" placeholder="新名称，或输入已有名称覆盖"><button @click="savePreset">保存为音色</button><button :disabled="selected === '_custom'" @click="deletePreset">删除当前预设</button></div></label>
+          <details><summary>从已有 GUI 导入（可选）</summary><label>GUI 配置文件路径<div class="inline"><input v-model="config.gagConfigPath" placeholder="GAG_config.json 的完整路径"><button @click="importPresets">导入预设</button></div></label></details>
         </fieldset>
         <fieldset><legend>电脑音频输出</legend><label class="check"><input type="checkbox" v-model="config.autoPlayOnComputer">合成完成后自动在电脑播放</label><label>输出设备<select v-model="config.audioDevice"><option v-for="d in devices" :key="d.id" :value="d.id">{{ d.name }}</option></select></label><label>音量 · {{ config.volume }}%<input type="range" min="0" max="150" step="5" v-model.number="config.volume"></label><p class="muted">音量和输出设备设置保存后，对下一条播放生效。选择指定输出设备需要 mpv。</p><label>播放器<select v-model="config.playbackBackend"><option value="auto">自动检测</option><option value="mpv">mpv</option><option value="ffplay">ffplay</option></select></label></fieldset>
-        <fieldset><legend>合成服务</legend><label>API 地址<input v-model="config.apiEndpoint" placeholder="http://127.0.0.1:9880/tts"></label></fieldset>
       </main>
     </template>
     <footer>SoVITS Live <span>本地合成 · 局域网控制</span></footer>
