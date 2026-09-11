@@ -132,3 +132,74 @@ test('reader connects with a visitor session and sends filtered comments to the 
   assert.equal(spoken.length, 2);
   assert.equal(reader.status().stats.skipped, 1);
 });
+
+test('changing the room or cookie reconnects the listener while it is running', async (t) => {
+  const config = {
+    bilibili: {
+      enabled: true,
+      roomId: 1001,
+      autoRead: false,
+      cookie: '',
+      minLength: 1,
+      maxLength: 100,
+      rateLimitSeconds: 0,
+      duplicateWindowSeconds: 0,
+      maxPending: 12,
+      skipCommands: true,
+      stripUrls: true,
+      stripEmoticons: true,
+      filterMode: 'mask',
+      bannedWords: [],
+      replacement: '*',
+      readPrefix: ''
+    }
+  };
+  const sockets = [];
+  const apiClient = {
+    cookies: { get: () => null },
+    async initCookie() {},
+    async liveRoomInit({ id }) { return { data: { room_id: id } }; },
+    async xliveGetDanmuInfo() { return { data: { token: 'token', host_list: [{ host: 'example.com' }] } }; }
+  };
+  const reader = new BilibiliDanmakuReader({ get: () => config }, {
+    apiClientFactory: () => apiClient,
+    liveFactory: (roomId) => {
+      const next = new EventTarget();
+      next.roomId = roomId;
+      next.closed = false;
+      next.close = () => { next.closed = true; };
+      sockets.push(next);
+      return next;
+    },
+    getPendingCount: () => 0
+  });
+  t.after(() => reader.stop());
+
+  reader.start();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(sockets.length, 1);
+  assert.equal(sockets[0].roomId, 1001);
+
+  // 只改 Cookie：必须断开旧连接并按新身份重连
+  config.bilibili.cookie = 'SESSDATA=demo';
+  reader.applyConfig();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(sockets[0].closed, true);
+  assert.equal(sockets.length, 2);
+
+  // 只改房间号：同样要重连
+  config.bilibili.roomId = 2002;
+  reader.applyConfig();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(sockets[1].closed, true);
+  assert.equal(sockets.length, 3);
+  assert.equal(sockets[2].roomId, 2002);
+
+  // 关闭开关：断开且不再新建连接
+  config.bilibili.enabled = false;
+  reader.applyConfig();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(sockets[2].closed, true);
+  assert.equal(sockets.length, 3);
+  assert.equal(reader.status().state, 'stopped');
+});

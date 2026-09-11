@@ -208,8 +208,9 @@ export class BilibiliDanmakuReader extends EventEmitter {
     const signature = connectionSignature(config);
     if (signature !== this.connectionSignature) {
       this.connectionSignature = signature;
+      // 房间号或 Cookie 变化后必须断开重连，否则 start() 会因为 running 为真直接返回。
+      this.stop();
       if (config.enabled) this.start();
-      else this.stop();
       return;
     }
     if (config.enabled && !this.running && !this.connecting && !this.connectTimer) {
