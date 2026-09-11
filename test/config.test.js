@@ -19,7 +19,8 @@ test('mode, nested settings and presets survive restart and concurrent saves', a
   await Promise.all([
     store.update({ localInference: { rootPath: 'D:\\Models\\中文 folder', device: 'cpu' } }),
     store.update({ localInference: { precision: 'full' }, presets: { Voice: { ref_audio_path: 'voice.wav' } } }),
-    store.update({ quickTexts: ['你好'], volume: 75 })
+    store.update({ quickTexts: ['你好'], volume: 75 }),
+    store.update({ bilibili: { roomId: 5928158, bannedWords: ['赌博', '诈骗'] } })
   ]);
   const restored = new ConfigStore(file);
   await restored.load();
@@ -29,8 +30,13 @@ test('mode, nested settings and presets survive restart and concurrent saves', a
   assert.equal(restored.get().presets.Voice.ref_audio_path, 'voice.wav');
   assert.deepEqual(restored.get().quickTexts, ['你好']);
   assert.equal(restored.get().volume, 75);
+  assert.equal(restored.get().bilibili.roomId, 5928158);
+  assert.deepEqual(restored.get().bilibili.bannedWords, ['赌博', '诈骗']);
   await assert.rejects(store.update({ inferenceMode: 'invalid' }));
   assert.equal(store.get().inferenceMode, 'local');
+  await assert.rejects(store.update({ bilibili: { enabled: true, roomId: 0 } }));
+  assert.equal(store.get().bilibili.enabled, false);
+  await assert.rejects(store.update({ bilibili: { filterMode: 'invalid' } }));
 });
 
 test('legacy configuration keeps external mode and corrupt files are preserved', async t => {

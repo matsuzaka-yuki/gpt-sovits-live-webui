@@ -28,6 +28,8 @@ export class QueueManager extends EventEmitter {
       id: randomUUID(),
       text: text.trim(),
       presetName: options.presetName || "",
+      source: options.source || "manual",
+      sourceUser: options.sourceUser || "",
       overrideParams: params,
       status: "pending", // pending, synthesizing, playing, completed, cancelled, error
       createdAt: Date.now(),
@@ -175,7 +177,9 @@ export class QueueManager extends EventEmitter {
             text: this.currentTask.text,
             status: this.currentTask.status,
             audioUrl: this.currentTask.audioUrl,
-            startedAt: this.currentTask.startedAt
+            startedAt: this.currentTask.startedAt,
+            source: this.currentTask.source,
+            sourceUser: this.currentTask.sourceUser
           }
         : null,
       queue: queueData,

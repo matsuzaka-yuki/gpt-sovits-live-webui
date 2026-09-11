@@ -6,10 +6,13 @@ const connected = ref(false), apiOnline = ref(false), busy = ref(false);
 const devices = ref([]), qr = ref(''), address = ref(''), showPhone = ref(false), firewall = ref(null);
 const selected = ref('_custom'), phrase = ref('');
 const inference = ref({ state: 'stopped', logs: '' }), presetName = ref('');
+const bilibili = ref({ state: 'stopped', logs: '', stats: {}, recent: [] });
 const inferenceLabels = { stopped: '未加载，首次合成时自动加载', loading: '正在加载模型', ready: '模型已就绪', error: '加载或运行失败' };
+const bilibiliLabels = { stopped: '未监听', connecting: '连接中', connected: '监听中', reconnecting: '重连中', error: '连接失败' };
 let socket, retry, poll, disposed = false;
 const ready = computed(() => Boolean(config.value?.activeParams?.ref_audio_path?.trim()));
 const pending = computed(() => state.value.queue.filter(t => t.id !== state.value.currentTask?.id));
+const bilibiliStateLabel = computed(() => bilibiliLabels[bilibili.value.state] || '未监听');
 const labels = { pending: '等待', synthesizing: '合成中', playing: '播放中', completed: '已播放', cancelled: '已取消', error: '失败', ready: '已合成' };
 async function request(url, body, method = 'POST') {
   const response = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
@@ -30,6 +33,7 @@ async function refresh(initial = false) {
     const result = await request('/api/status', undefined, 'GET');
     apiOnline.value = result.apiConnected;
     inference.value = result.inference || inference.value;
+    bilibili.value = result.bilibili || bilibili.value;
     qr.value = result.qrDataUrl; address.value = result.accessUrl;
     firewall.value = result.firewall || null;
     if (initial) { receiveConfig(result.config); state.value = result.state; }
@@ -42,6 +46,8 @@ function connect() {
     const msg = JSON.parse(event.data);
     if (msg.data) state.value = msg.data;
     if (msg.config) receiveConfig(msg.config);
+    if (msg.bilibili) bilibili.value = msg.bilibili;
+    if (msg.type === 'bilibili') bilibili.value = msg.data;
   };
   socket.onclose = () => {
     connected.value = false;
@@ -83,6 +89,19 @@ async function controlInference(action) {
   if (action === 'start' && !(await save())) return;
   await run(async () => { await request('/api/inference/' + action); await refresh(); });
 }
+function wordsText(list) { return (list || []).join('\n'); }
+function setWords(event) {
+  config.value.bilibili.bannedWords = event.target.value.split(/[\n,，]+/).map(word => word.trim()).filter(Boolean);
+}
+async function controlBilibili(action) {
+  if (action === 'start' && !(await save())) return;
+  await run(async () => {
+    const result = await request('/api/bilibili/' + action);
+    bilibili.value = result.bilibili || bilibili.value;
+    await refresh();
+    notice.value = action === 'start' ? '弹幕监听已启动' : '弹幕监听已停止';
+  });
+}
 async function savePreset() {
   const name = presetName.value.trim();
   if (!name || ['_custom', '__proto__', 'constructor', 'prototype'].includes(name)) { error.value = '请输入有效的音色名称'; return; }
@@ -122,7 +141,7 @@ onUnmounted(() => { disposed = true; clearInterval(poll); clearTimeout(retry); s
       <a class="brand" href="/"><span class="brand-mark">S</span><div>SoVITS <strong>Live</strong><small>直播语音控制台</small></div></a>
       <nav><button :class="{ selected: tab === 'studio' }" @click="tab = 'studio'">控制台</button><button :class="{ selected: tab === 'settings' }" @click="tab = 'settings'">设置</button><button @click="showPhone = true">手机连接</button></nav>
     </header>
-    <div class="statusline"><span><i :class="{ online: connected }"></i>{{ connected ? '控制台已连接' : '控制台连接中' }}</span><span><i :class="{ online: apiOnline }"></i>{{ apiOnline ? '合成服务在线' : '合成服务离线' }}</span><span class="output-note">音频在电脑端播放</span></div>
+    <div class="statusline"><span><i :class="{ online: connected }"></i>{{ connected ? '控制台已连接' : '控制台连接中' }}</span><span><i :class="{ online: apiOnline }"></i>{{ apiOnline ? '合成服务在线' : '合成服务离线' }}</span><span v-if="config && config.bilibili && config.bilibili.enabled"><i :class="{ online: bilibili.state === 'connected' }"></i>B站弹幕 {{ bilibiliStateLabel }}</span><span class="output-note">音频在电脑端播放</span></div>
     <div v-if="error" role="alert" class="message error">{{ error }}<button @click="error = ''">关闭</button></div>
     <div v-else-if="notice" role="status" class="message">{{ notice }}</div>
     <div v-if="!config" class="panel">正在连接控制台…</div>
@@ -146,7 +165,7 @@ onUnmounted(() => { disposed = true; clearInterval(poll); clearTimeout(retry); s
         <section class="panel activity"><div class="section-top"><h2>任务记录</h2><span class="muted">{{ pending.length }} 条等待</span></div>
           <p v-if="!state.queue.length && !state.history.length" class="empty">还没有任务。输入文字，开始第一次合成。</p>
           <article v-for="item in [...state.queue, ...state.history]" :key="item.id" class="task">
-            <div class="task-heading"><span :class="['task-status', { failed: item.status === 'error' }]">{{ labels[item.status] }}</span><time>{{ new Date(item.createdAt).toLocaleTimeString() }}</time><span>{{ item.presetName === '_custom' ? '自定义' : item.presetName }}</span></div>
+            <div class="task-heading"><span :class="['task-status', { failed: item.status === 'error' }]">{{ labels[item.status] }}</span><time>{{ new Date(item.createdAt).toLocaleTimeString() }}</time><span v-if="item.source === 'bilibili'" class="source-tag">B站 · {{ item.sourceUser }}</span><span>{{ item.presetName === '_custom' ? '自定义' : item.presetName }}</span></div>
             <p>{{ item.text }}</p><p v-if="item.error" class="task-error">{{ item.error }}</p>
             <div class="task-actions"><button v-if="state.queue.some(t => t.id === item.id)" @click="run(() => request('/api/queue/' + item.id, undefined, 'DELETE'))">取消</button><button v-else @click="selectPhrase(item.text)">再次使用</button><audio v-if="item.audioUrl" :src="item.audioUrl" controls preload="none" aria-label="在当前设备试听"></audio><span v-if="item.audioUrl" class="muted">当前设备试听</span></div>
           </article>
@@ -186,6 +205,38 @@ onUnmounted(() => { disposed = true; clearInterval(poll); clearTimeout(retry); s
           </details>
           <label>保存音色名称<div class="inline"><input v-model="presetName" placeholder="新名称，或输入已有名称覆盖"><button @click="savePreset">保存为音色</button><button :disabled="selected === '_custom'" @click="deletePreset">删除当前预设</button></div></label>
           <details><summary>从已有 GUI 导入（可选）</summary><label>GUI 配置文件路径<div class="inline"><input v-model="config.gagConfigPath" placeholder="GAG_config.json 的完整路径"><button @click="importPresets">导入预设</button></div></label></details>
+        </fieldset>
+        <fieldset>
+          <legend>B站直播弹幕朗读</legend>
+          <label class="check"><input type="checkbox" v-model="config.bilibili.enabled">启用弹幕监听</label>
+          <p class="muted">默认以访客身份连接 B 站，不需要登录。遇到风控无法连接时，可在高级设置里填写自己的 Cookie。房间号填写直播间地址中的数字即可。</p>
+          <div class="two">
+            <label>房间号<input type="number" min="1" v-model.number="config.bilibili.roomId" placeholder="例如 5928158"></label>
+            <label>违禁词处理<select v-model="config.bilibili.filterMode"><option value="mask">替换后朗读</option><option value="drop">整条忽略</option></select></label>
+          </div>
+          <label class="check"><input type="checkbox" v-model="config.bilibili.autoRead">自动把过滤后的弹幕加入电脑合成队列</label>
+          <label>违禁词（每行一个，也支持逗号分隔）<textarea class="short" :value="wordsText(config.bilibili.bannedWords)" @input="setWords" placeholder="例如：赌博, 诈骗, 广告"></textarea></label>
+          <div class="two">
+            <label>最短朗读字数<input type="number" min="1" max="100" v-model.number="config.bilibili.minLength"></label>
+            <label>最长朗读字数<input type="number" min="1" max="500" v-model.number="config.bilibili.maxLength"></label>
+          </div>
+          <div class="two">
+            <label>同一用户间隔（秒）<input type="number" min="0" max="3600" v-model.number="config.bilibili.rateLimitSeconds"></label>
+            <label>重复弹幕窗口（秒）<input type="number" min="0" max="3600" v-model.number="config.bilibili.duplicateWindowSeconds"></label>
+          </div>
+          <label>最多等待合成条数<input type="number" min="0" max="100" v-model.number="config.bilibili.maxPending"></label>
+          <p role="status">监听状态：{{ bilibiliStateLabel }}<span v-if="bilibili.error"> · {{ bilibili.error }}</span></p>
+          <p class="muted">已收到 {{ bilibili.stats?.received || 0 }} 条，朗读 {{ bilibili.stats?.spoken || 0 }} 条，过滤 {{ bilibili.stats?.filtered || 0 }} 条，跳过 {{ bilibili.stats?.skipped || 0 }} 条。</p>
+          <div class="inline"><button :disabled="bilibili.state === 'connecting'" @click="controlBilibili('start')">保存并启动监听</button><button @click="controlBilibili('stop')">停止监听</button></div>
+          <details v-if="bilibili.logs"><summary>弹幕连接日志</summary><pre class="inference-log">{{ bilibili.logs }}</pre></details>
+          <details><summary>高级设置</summary>
+            <label class="check"><input type="checkbox" v-model="config.bilibili.skipCommands">忽略以 !、/、# 开头的命令弹幕</label>
+            <label class="check"><input type="checkbox" v-model="config.bilibili.stripUrls">过滤链接后再朗读</label>
+            <label class="check"><input type="checkbox" v-model="config.bilibili.stripEmoticons">过滤 [表情] 标签后再朗读</label>
+            <label>朗读前缀（可选）<input v-model="config.bilibili.readPrefix" placeholder="例如：弹幕说"></label>
+            <label>B站 Cookie（可选）<textarea class="short" v-model="config.bilibili.cookie" placeholder="遇到风控时填写 SESSDATA=...; bili_jct=...; buvid3=..."></textarea></label>
+          </details>
+          <details v-if="bilibili.recent?.length"><summary>最近弹幕</summary><div class="danmaku-list"><div v-for="item in bilibili.recent" :key="item.time + item.text" class="danmaku-item"><span>{{ item.user }}</span><strong>{{ item.text }}</strong><em>{{ item.action }}{{ item.reason ? ' · ' + item.reason : '' }}</em></div></div></details>
         </fieldset>
         <fieldset><legend>电脑音频输出</legend><label class="check"><input type="checkbox" v-model="config.autoPlayOnComputer">合成完成后自动在电脑播放</label><label>输出设备<select v-model="config.audioDevice"><option v-for="d in devices" :key="d.id" :value="d.id">{{ d.name }}</option></select></label><label>音量 · {{ config.volume }}%<input type="range" min="0" max="150" step="5" v-model.number="config.volume"></label><p class="muted">音量和输出设备设置保存后，对下一条播放生效。选择指定输出设备需要 mpv。</p><label>播放器<select v-model="config.playbackBackend"><option value="auto">自动检测</option><option value="mpv">mpv</option><option value="ffplay">ffplay</option></select></label></fieldset>
       </main>

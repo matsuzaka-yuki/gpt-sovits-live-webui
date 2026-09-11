@@ -23,7 +23,7 @@ a{color:var(--green);text-decoration:none}
 nav{display:flex;gap:8px}
 nav button{border-color:transparent;background:transparent;font-size:13px}
 nav .selected{background:#e4eadf;color:#284d38}
-.statusline{display:flex;gap:22px;padding:22px 0;font-size:12px;color:var(--muted)}
+.statusline{display:flex;flex-wrap:wrap;gap:14px 22px;padding:22px 0;font-size:12px;color:var(--muted)}
 .statusline span{display:flex;align-items:center;gap:7px}
 .statusline i{height:6px;width:6px;background:#b99570;border-radius:50%}
 .statusline i.online{background:#528060}
@@ -70,6 +70,12 @@ label{display:flex;flex-direction:column;gap:9px;font-size:12px;color:#6e786d}
 .task-heading{display:flex;gap:12px;align-items:center;font-size:10px;color:#8b9387;margin-bottom:9px}
 .task-status{color:#527353}
 .task-status.failed,.task-error{color:#ac5540}
+.source-tag{color:#50705a}
+.danmaku-list{display:flex;flex-direction:column;gap:6px}
+.danmaku-item{display:grid;grid-template-columns:minmax(60px,auto) minmax(0,1fr) auto;gap:10px;align-items:baseline;font-size:12px;padding:8px 10px;background:#fafbf8;border:1px solid #edf0e9;border-radius:6px}
+.danmaku-item span{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.danmaku-item strong{font-weight:500;overflow-wrap:anywhere}
+.danmaku-item em{font-style:normal;color:#7e8a7a;font-size:11px;white-space:nowrap}
 .task>p{font-size:13px;line-height:1.7;overflow-wrap:anywhere}
 .task .task-error{font-size:12px;margin-top:8px}
 .task-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:10px}
@@ -123,6 +129,8 @@ h1{font-size:25px}
 .inline{flex-wrap:wrap}
 .inline input{flex:1;min-width:180px}
 .two{grid-template-columns:1fr}
+.danmaku-item{grid-template-columns:1fr;gap:4px}
+.danmaku-item span,.danmaku-item em{white-space:normal}
 .settings .section-top{align-items:start}
 .settings .primary{white-space:nowrap;padding:10px 13px}
 }

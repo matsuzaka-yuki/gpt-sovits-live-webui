@@ -12,6 +12,7 @@ A configurable LAN voice console for [GPT-SoVITS](https://github.com/RVC-Boss/GP
 - **Audio plays on the computer**: the server renders audio through `mpv` or `ffplay` on Linux, or PowerShell `SoundPlayer` on Windows, so playback survives the phone locking or leaving the page.
 - **Works with your current setup**: talks to a running GPT-SoVITS API (default `http://127.0.0.1:9880`) and can import presets from your existing `GAG_config.json`.
 - **Live queue**: tasks are synthesized and played in order, with stop-current and stop-and-clear controls plus a task history.
+- **Optional Bilibili danmaku reading**: connect a live room, filter banned words and emoticons, then queue accepted comments for TTS. Per-user rate limits, duplicate suppression, command filtering and a queue cap prevent chat floods from taking over the stream.
 - **Common phrases**: a persistent phrase list that fills the composer, so wording can be adjusted before synthesizing.
 - **Built-in network diagnostics**: startup checks for firewall rules that would block the phone, an `/api/diagnostics` endpoint, and per-request logs with source IPs.
 - **Cross-platform**: Linux and Windows, with startup scripts for both.
@@ -21,7 +22,9 @@ A configurable LAN voice console for [GPT-SoVITS](https://github.com/RVC-Boss/GP
 ```
 phone browser ──HTTP/WebSocket──▶ Fastify server (9870) ──▶ local Python worker / external API
                                        │
-                                       └──▶ mpv / ffplay / SoundPlayer ──▶ PC speakers ──▶ OBS
+                                       ├──▶ mpv / ffplay / SoundPlayer ──▶ PC speakers ──▶ OBS
+                                       │
+                                       └──▶ Bilibili live WebSocket (optional danmaku input)
 ```
 
 The phone is only a controller. Synthesis and playback both happen on the PC, which keeps the audio chain stable while streaming.
@@ -86,6 +89,23 @@ Settings are stored in `data/config.json` and can be edited from the Settings ta
 
 Importing presets only copies voice parameters. It does not switch the GPT or SoVITS models already loaded in your GPT-SoVITS instance.
 
+### Bilibili danmaku (optional)
+
+The Bilibili panel in Settings can listen to a live room and add accepted comments to the same TTS queue. It uses the maintained community WebSocket protocol, not the official Live Open Platform, so no developer application or anchor authorization is required. The default visitor session is created automatically; if Bilibili risk control starts returning `-352` or hides sender names, paste a browser Cookie into Advanced Settings as a fallback.
+
+Room ID, filters and limits are stored in `data/config.json` with the rest of the settings. The main options are:
+
+| Setting | Description |
+| --- | --- |
+| Room ID | The number in `live.bilibili.com/<room>`, for example `5928158`. |
+| Auto-read | When enabled, accepted comments enter the computer playback queue. When disabled, the panel only monitors and previews comments. |
+| Banned words | One word per line or comma-separated. `mask` replaces matches with `*`; `drop` ignores the whole comment. |
+| Queue cap | Stop adding comments when this many tasks are already waiting. Manual submissions continue to work. |
+| Rate / duplicate windows | Suppress repeated messages from one user and comments that repeat too quickly. |
+| Advanced filters | Ignore `!`, `/`, `#` commands, strip URLs and `[emoticon]` tags, and add an optional spoken prefix. |
+
+The listener reconnects with exponential backoff. Its status, counters, connection log and the last filtered comments are visible in Settings. Changing the room, Cookie or enabled state restarts the listener; changing filters applies to the next comment without dropping the connection. The room owner can leave this feature disabled and use the phone composer independently.
+
 ## Troubleshooting
 
 If the phone cannot open the page, check these in order:
@@ -118,6 +138,9 @@ When started through `start.sh`, the log is also written to `data/server.log`.
 | `/api/queue/:id` | DELETE | Remove one queued task |
 | `/api/devices` | GET | List audio output devices |
 | `/api/diagnostics` | GET | Platform, listening address, LAN URLs, firewall check |
+| `/api/bilibili/status` | GET | Danmaku listener state, counters, logs and recent comments |
+| `/api/bilibili/start` | POST | Persist `enabled=true` and start listening to the configured room |
+| `/api/bilibili/stop` | POST | Persist `enabled=false` and stop listening |
 | `/ws` | WebSocket | Live queue and config updates |
 
 ## Development
@@ -159,6 +182,7 @@ This tool has no authentication. It is meant for a trusted local network, so do 
 - **电脑本地播放**：音频由服务端调用播放器输出（Linux 优先 `mpv`，也支持 `ffplay`；Windows 兜底 PowerShell `SoundPlayer`），手机锁屏或离开页面都不影响。
 - **对接现有环境**：连接你正在运行的 GPT-SoVITS API（默认 `http://127.0.0.1:9880`），可导入现有 `GAG_config.json` 里的音色预设。
 - **直播队列**：按提交顺序依次合成播放，支持停止当前、停止并清空，并保留任务记录。
+- **可选 B 站弹幕朗读**：连接直播间后自动过滤违禁词、表情和链接，再把可朗读弹幕加入同一个合成队列；支持单用户频率限制、重复弹幕抑制、命令过滤和队列上限，避免弹幕刷屏占满直播音频。
 - **常用语**：常驻常用语列表，点击后填入输入框，可改字再合成。
 - **内置排障**：启动时自动检查防火墙是否拦截手机访问，提供 `/api/diagnostics` 诊断接口和带来源 IP 的请求日志。
 - **跨平台**：Linux 与 Windows 均有启动脚本。
@@ -168,7 +192,9 @@ This tool has no authentication. It is meant for a trusted local network, so do 
 ```
 手机浏览器 ──HTTP/WebSocket──▶ Fastify 服务 (9870) ──▶ 本地 Python 推理 / 外部 API
                                      │
-                                     └──▶ mpv / ffplay / SoundPlayer ──▶ 电脑扬声器 ──▶ OBS
+                                     ├──▶ mpv / ffplay / SoundPlayer ──▶ 电脑扬声器 ──▶ OBS
+                                     │
+                                     └──▶ B站直播 WebSocket（可选弹幕输入）
 ```
 
 手机只是控制器，合成和播放都在电脑上完成，这样直播中的音频链路才稳定。
@@ -233,6 +259,23 @@ npm start
 
 导入预设只会复制音色参数，不会切换你 GPT-SoVITS 里已经加载的 GPT / SoVITS 模型。
 
+### B 站弹幕朗读（可选）
+
+设置页的 B 站弹幕面板可以监听指定直播间，并把通过过滤的弹幕加入同一个合成队列。它使用社区维护的 WebSocket 协议，不依赖 B 站直播开放平台，因此不需要申请开发者应用或让主播授权。默认会自动创建访客会话；如果 B 站风控返回 `-352` 或隐藏发送者昵称，可以在高级设置中填入浏览器 Cookie 作为回退。
+
+房间号、过滤规则和限制与会话配置一起保存在 `data/config.json`。主要选项如下：
+
+| 配置 | 说明 |
+| --- | --- |
+| 房间号 | `live.bilibili.com/<room>` 中的数字，例如 `5928158`。 |
+| 自动朗读 | 开启后，通过过滤的弹幕进入电脑播放队列；关闭时只监听并预览弹幕。 |
+| 违禁词 | 每行一个或用逗号分隔。`替换后朗读` 会把命中内容替换为 `*`，`整条忽略` 会跳过整条弹幕。 |
+| 队列上限 | 等待合成的任务达到该数量后，不再继续加入弹幕；手动提交的合成不受影响。 |
+| 频率 / 重复窗口 | 限制同一用户连续发送和重复弹幕进入朗读。 |
+| 高级过滤 | 忽略以 `!`、`/`、`#` 开头的命令，过滤链接和 `[表情]` 标签，并可添加朗读前缀。 |
+
+监听器断开后会按指数退避自动重连。设置页会显示连接状态、计数、日志和最近过滤结果。修改房间号、Cookie 或启用状态会重启监听；修改过滤规则只会作用于下一条弹幕，不会断开连接。主播不需要该功能时保持关闭即可，手机手动打字合成不受影响。
+
 ## 手机连不上页面时
 
 按顺序排查，第一条最常见：
@@ -265,6 +308,9 @@ npm start
 | `/api/queue/:id` | DELETE | 删除某条待播任务 |
 | `/api/devices` | GET | 列出音频输出设备 |
 | `/api/diagnostics` | GET | 平台、监听地址、局域网 URL、防火墙检查 |
+| `/api/bilibili/status` | GET | 弹幕监听状态、计数、日志和最近弹幕 |
+| `/api/bilibili/start` | POST | 持久化 `enabled=true` 并开始监听配置的直播间 |
+| `/api/bilibili/stop` | POST | 持久化 `enabled=false` 并停止监听 |
 | `/ws` | WebSocket | 实时推送队列与配置变化 |
 
 ## 开发

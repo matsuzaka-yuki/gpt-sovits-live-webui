@@ -81,6 +81,7 @@ try {
     check("status exposes an access url", typeof status.accessUrl === "string" && status.accessUrl.startsWith("http://"));
     check("status includes firewall diagnostics", status.firewall && typeof status.firewall.ok === "boolean");
     check("status includes the queue state", status.state && Array.isArray(status.state.queue));
+    check("status includes bilibili danmaku state", status.bilibili && typeof status.bilibili.state === "string");
 
     const diagnostics = await (await fetch(`${baseUrl}/api/diagnostics`)).json();
     check("diagnostics reports the listening port", diagnostics.listen?.port === port, JSON.stringify(diagnostics.listen));

@@ -21,6 +21,24 @@ const DEFAULT_CONFIG = {
     autoStart: false,
     timeoutSeconds: 300
   },
+  bilibili: {
+    enabled: false,
+    roomId: 0,
+    autoRead: true,
+    cookie: '',
+    minLength: 1,
+    maxLength: 100,
+    rateLimitSeconds: 3,
+    duplicateWindowSeconds: 60,
+    maxPending: 12,
+    skipCommands: true,
+    stripUrls: true,
+    stripEmoticons: true,
+    filterMode: 'mask',
+    bannedWords: [],
+    replacement: '*',
+    readPrefix: ''
+  },
   port: 9870,
   host: '0.0.0.0',
   apiEndpoint: 'http://127.0.0.1:9880/tts',
@@ -81,6 +99,7 @@ export class ConfigStore {
           ...parsed,
           inferenceMode: parsed.inferenceMode || 'external',
           localInference: { ...DEFAULT_CONFIG.localInference, ...(parsed.localInference || {}) },
+          bilibili: { ...DEFAULT_CONFIG.bilibili, ...(parsed.bilibili || {}) },
           activeParams: { ...DEFAULT_CONFIG.activeParams, ...(parsed.activeParams || {}) }
         };
       } else {
@@ -122,7 +141,8 @@ export class ConfigStore {
       if (!patch || typeof patch !== 'object' || Array.isArray(patch)) throw new Error('配置必须是对象');
       const next = { ...this.config, ...patch,
         activeParams: { ...this.config.activeParams, ...patch.activeParams },
-        localInference: { ...this.config.localInference, ...patch.localInference } };
+        localInference: { ...this.config.localInference, ...patch.localInference },
+        bilibili: { ...this.config.bilibili, ...patch.bilibili } };
       if (!['local', 'external'].includes(next.inferenceMode)) throw new Error('无效的推理模式');
       const local = next.localInference;
       for (const key of ['pythonPath', 'rootPath', 'configPath', 'gptWeights', 'sovitsWeights']) {
@@ -131,6 +151,24 @@ export class ConfigStore {
       if (!['auto', 'cpu', 'cuda', 'cuda:0', 'cuda:1', 'mps'].includes(local.device)) throw new Error('无效的推理设备');
       if (!['auto', 'full', 'half'].includes(local.precision)) throw new Error('无效的精度');
       if (typeof local.autoStart !== 'boolean' || !Number.isInteger(local.timeoutSeconds) || local.timeoutSeconds < 10 || local.timeoutSeconds > 1800) throw new Error('加载/合成超时必须为 10–1800 秒');
+      const bilibili = next.bilibili;
+      if (typeof bilibili.enabled !== 'boolean' || typeof bilibili.autoRead !== 'boolean') throw new Error('无效的弹幕开关');
+      if (!Number.isInteger(bilibili.roomId) || bilibili.roomId < 0 || bilibili.roomId > 999999999999) throw new Error('B站房间号必须是正整数');
+      if (bilibili.enabled && bilibili.roomId <= 0) throw new Error('启用弹幕监听前请填写有效的 B站房间号');
+      if (typeof bilibili.cookie !== 'string' || bilibili.cookie.length > 20000 || bilibili.cookie.includes('\0')) throw new Error('无效的 B站 Cookie');
+      if (!['mask', 'drop'].includes(bilibili.filterMode)) throw new Error('无效的违禁词过滤方式');
+      if (!Array.isArray(bilibili.bannedWords) || bilibili.bannedWords.length > 500) throw new Error('违禁词最多 500 个');
+      for (const word of bilibili.bannedWords) {
+        if (typeof word !== 'string' || word.length > 64 || word.includes('\0')) throw new Error('违禁词格式不正确');
+      }
+      if (typeof bilibili.replacement !== 'string' || bilibili.replacement.length > 12) throw new Error('违禁词替换内容过长');
+      if (typeof bilibili.readPrefix !== 'string' || bilibili.readPrefix.length > 80) throw new Error('朗读前缀过长');
+      if (!Number.isInteger(bilibili.minLength) || bilibili.minLength < 1 || bilibili.minLength > 100) throw new Error('弹幕最短字数必须为 1–100');
+      if (!Number.isInteger(bilibili.maxLength) || bilibili.maxLength < 1 || bilibili.maxLength > 500 || bilibili.maxLength < bilibili.minLength) throw new Error('弹幕最长字数必须不小于最短字数，且不超过 500');
+      if (!Number.isFinite(bilibili.rateLimitSeconds) || bilibili.rateLimitSeconds < 0 || bilibili.rateLimitSeconds > 3600) throw new Error('同一用户发送间隔必须为 0–3600 秒');
+      if (!Number.isFinite(bilibili.duplicateWindowSeconds) || bilibili.duplicateWindowSeconds < 0 || bilibili.duplicateWindowSeconds > 3600) throw new Error('重复弹幕窗口必须为 0–3600 秒');
+      if (!Number.isInteger(bilibili.maxPending) || bilibili.maxPending < 0 || bilibili.maxPending > 100) throw new Error('弹幕等待队列上限必须为 0–100 条');
+      if (typeof bilibili.skipCommands !== 'boolean' || typeof bilibili.stripUrls !== 'boolean' || typeof bilibili.stripEmoticons !== 'boolean') throw new Error('无效的弹幕过滤选项');
       let url;
       try { url = new URL(next.apiEndpoint); } catch { throw new Error('API 地址格式不正确'); }
       if (!['http:', 'https:'].includes(url.protocol)) throw new Error('API 地址必须使用 HTTP 或 HTTPS');

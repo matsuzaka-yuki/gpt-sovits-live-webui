@@ -12,6 +12,7 @@ import { ConfigStore } from "./config.js";
 import { AudioPlayer } from "./player.js";
 import { TtsService } from "./tts.js";
 import { QueueManager } from "./queue.js";
+import { BilibiliDanmakuReader } from "./bilibili.js";
 import { checkPortAccess, formatWarning } from "./firewall.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -43,6 +44,19 @@ export async function createServer() {
   const audioPlayer = new AudioPlayer(configStore);
   const ttsService = new TtsService(configStore);
   const queueManager = new QueueManager(ttsService, audioPlayer);
+  const bilibili = new BilibiliDanmakuReader(configStore, {
+    getPendingCount: () => queueManager.queue.length
+  });
+  bilibili.on("speak", (payload) => {
+    try {
+      queueManager.enqueue(payload.text, {
+        source: payload.source,
+        sourceUser: payload.user
+      });
+    } catch (error) {
+      bilibili.reportQueueError(error);
+    }
+  });
 
   const fastify = Fastify({
     logger: false
@@ -81,7 +95,8 @@ export async function createServer() {
       socket.send(JSON.stringify({
         type: "state",
         data: queueManager.getState(),
-        config: configStore.get()
+        config: configStore.get(),
+        bilibili: bilibili.status()
       }));
 
       socket.on("message", async (raw) => {
@@ -115,6 +130,10 @@ export async function createServer() {
     }
   };
 
+  bilibili.on("status", (data) => {
+    broadcast({ type: "bilibili", data });
+  });
+
   queueManager.on("change", (state) => {
     broadcast({ type: "state", data: state });
   });
@@ -139,6 +158,7 @@ export async function createServer() {
       qrDataUrl,
       firewall,
       config,
+      bilibili: bilibili.status(),
       state: queueManager.getState()
     };
   });
@@ -174,8 +194,27 @@ export async function createServer() {
     const updated = await configStore.update(patch);
     if (inferenceChanged) await ttsService.local.stop();
     if (updated.inferenceMode === 'local' && updated.localInference.autoStart && inferenceChanged) ttsService.local.start().catch(console.error);
+    bilibili.applyConfig();
     broadcast({ type: "config", config: updated });
     return { success: true, config: updated };
+  });
+
+  fastify.get("/api/bilibili/status", async () => {
+    return { success: true, bilibili: bilibili.status() };
+  });
+
+  fastify.post("/api/bilibili/start", async () => {
+    const updated = await configStore.update({ bilibili: { enabled: true } });
+    bilibili.applyConfig();
+    broadcast({ type: "config", config: updated });
+    return { success: true, bilibili: bilibili.status() };
+  });
+
+  fastify.post("/api/bilibili/stop", async () => {
+    const updated = await configStore.update({ bilibili: { enabled: false } });
+    bilibili.applyConfig();
+    broadcast({ type: "config", config: updated });
+    return { success: true, bilibili: bilibili.status() };
   });
 
   fastify.post("/api/config/import-gag", async (req) => {
@@ -244,8 +283,14 @@ export async function createServer() {
     });
   }
 
-  fastify.addHook('onClose', async () => { queueManager.stopAndClearAll(); await ttsService.local.stop(); for (const socket of wsClients) socket.close(); });
+  fastify.addHook('onClose', async () => {
+    bilibili.stop();
+    queueManager.stopAndClearAll();
+    await ttsService.local.stop();
+    for (const socket of wsClients) socket.close();
+  });
   if (configStore.get().inferenceMode === 'local' && configStore.get().localInference.autoStart) ttsService.local.start().catch(console.error);
+  bilibili.applyConfig();
   return { fastify, configStore, queueManager };
 }
 
