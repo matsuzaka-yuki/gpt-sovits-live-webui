@@ -13,6 +13,7 @@ import { AudioPlayer } from "./player.js";
 import { TtsService } from "./tts.js";
 import { QueueManager } from "./queue.js";
 import { BilibiliDanmakuReader } from "./bilibili.js";
+import { BilibiliLogin } from './bilibili-login.js';
 import { checkPortAccess, formatWarning } from "./firewall.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -139,6 +140,24 @@ export async function createServer() {
   });
 
   // REST APIs
+  const bilibiliLogin = new BilibiliLogin(async (cookie) => {
+    await configStore.update({ bilibili: { cookie } });
+    bilibili.applyConfig();
+    broadcast({ type: 'bilibili-login', cookie, bilibili: bilibili.status() });
+  });
+  fastify.post('/api/bilibili/login/generate', async (req, reply) => {
+    reply.header('Cache-Control', 'no-store');
+    return { success: true, ...await bilibiliLogin.generate() };
+  });
+  fastify.post('/api/bilibili/login/poll', async (req, reply) => {
+    reply.header('Cache-Control', 'no-store');
+    return { success: true, ...await bilibiliLogin.poll(req.body?.id) };
+  });
+  fastify.post('/api/bilibili/login/cancel', async (req) => {
+    bilibiliLogin.cancel(req.body?.id);
+    return { success: true };
+  });
+
   fastify.get("/api/status", async () => {
     const apiStatus = await ttsService.checkApiStatus();
     const config = configStore.get();

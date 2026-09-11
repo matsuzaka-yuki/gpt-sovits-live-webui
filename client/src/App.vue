@@ -7,6 +7,9 @@ const devices = ref([]), qr = ref(''), address = ref(''), showPhone = ref(false)
 const selected = ref('_custom'), phrase = ref('');
 const inference = ref({ state: 'stopped', logs: '' }), presetName = ref('');
 const bilibili = ref({ state: 'stopped', logs: '', stats: {}, recent: [] });
+const showBilibiliLogin = ref(false), loginQr = ref(''), loginState = ref('loading'), loginError = ref('');
+const loginLabels = { loading: '正在获取二维码…', waiting: '请用哔哩哔哩 App 扫码', scanned: '扫码成功，请在手机上确认登录', success: '登录成功，已自动保存登录信息', expired: '二维码已过期，请刷新后重试', error: '暂时无法连接登录服务' };
+let loginTimer, loginId = '', loginGeneration = 0, loginExpiresAt = 0;
 const inferenceLabels = { stopped: '未加载，首次合成时自动加载', loading: '正在加载模型', ready: '模型已就绪', error: '加载或运行失败' };
 const bilibiliLabels = { stopped: '未监听', connecting: '连接中', connected: '监听中', reconnecting: '重连中', error: '连接失败' };
 let socket, retry, poll, disposed = false;
@@ -15,7 +18,7 @@ const pending = computed(() => state.value.queue.filter(t => t.id !== state.valu
 const bilibiliStateLabel = computed(() => bilibiliLabels[bilibili.value.state] || '未监听');
 const labels = { pending: '等待', synthesizing: '合成中', playing: '播放中', completed: '已播放', cancelled: '已取消', error: '失败', ready: '已合成' };
 async function request(url, body, method = 'POST') {
-  const response = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+  const response = await fetch(url, { method, ...(body === undefined ? {} : { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }) });
   const result = await response.json();
   if (!response.ok || result.success === false) throw new Error(result.message || '请求失败');
   return result;
@@ -49,6 +52,7 @@ function connect() {
     if (msg.config) receiveConfig(msg.config);
     if (msg.bilibili) bilibili.value = msg.bilibili;
     if (msg.type === 'bilibili') bilibili.value = msg.data;
+    if (msg.type === 'bilibili-login' && config.value?.bilibili) config.value.bilibili.cookie = msg.cookie;
   };
   socket.onclose = () => {
     connected.value = false;
@@ -126,9 +130,65 @@ const speakPreviewFallback = computed(() => {
 });
 const bilibiliSessionNote = computed(() => {
   if (bilibili.value.loggedIn) return '当前会话：已登录（UID ' + bilibili.value.sessionUid + '），可以读取真实用户名。';
-  if (bilibili.value.maskedReceived > 0) return '当前会话：访客。B 站会把昵称打码成 M***，只能朗读成“观众”。填写下面的 Cookie 后重启监听即可拿到真实用户名。';
-  return '当前会话：访客。想朗读真实用户名，需要填写下面的 Cookie。';
+  if (bilibili.value.cookieConfigured) return '已保存登录信息，启动监听后验证登录状态。若昵称仍被打码，请重新扫码登录。';
+  if (bilibili.value.maskedReceived > 0) return '当前会话：访客。B 站会把昵称打码成 M***，扫码登录后可以尝试读取真实用户名。';
+  return '当前会话：访客。扫码登录后可以读取真实用户名。';
 });
+function closeBilibiliLogin() {
+  showBilibiliLogin.value = false;
+  loginGeneration += 1;
+  clearTimeout(loginTimer);
+  if (loginId) request('/api/bilibili/login/cancel', { id: loginId }).catch(() => {});
+  loginId = '';
+  loginQr.value = '';
+}
+async function openBilibiliLogin() {
+  closeBilibiliLogin();
+  showBilibiliLogin.value = true;
+  loginState.value = 'loading'; loginError.value = '';
+  const generation = loginGeneration;
+  try {
+    const result = await request('/api/bilibili/login/generate');
+    if (generation !== loginGeneration) {
+      request('/api/bilibili/login/cancel', { id: result.id }).catch(() => {});
+      return;
+    }
+    loginId = result.id;
+    loginExpiresAt = result.expiresAt;
+    loginQr.value = result.qrDataUrl;
+    loginState.value = result.state;
+    loginTimer = setTimeout(() => pollBilibiliLogin(generation), 2000);
+  } catch (e) {
+    if (generation !== loginGeneration) return;
+    loginState.value = 'error'; loginError.value = e.message;
+  }
+}
+async function pollBilibiliLogin(generation) {
+  if (generation !== loginGeneration) return;
+  if (Date.now() >= loginExpiresAt) {
+    loginState.value = 'expired'; loginQr.value = ''; loginError.value = '';
+    return;
+  }
+  try {
+    const result = await request('/api/bilibili/login/poll', { id: loginId });
+    if (generation !== loginGeneration) return;
+    loginState.value = result.state; loginError.value = '';
+    if (result.state === 'success') {
+      loginQr.value = '';
+      // Sync only credentials so unsaved room, voice and filter edits survive login.
+      const saved = await request('/api/config', undefined, 'GET');
+      if (config.value?.bilibili) config.value.bilibili.cookie = saved.config.bilibili.cookie;
+      await refresh();
+      return;
+    }
+    if (result.state === 'expired') { loginQr.value = ''; return; }
+  } catch (e) {
+    if (generation !== loginGeneration) return;
+    loginError.value = loginState.value === 'success' ? '登录已保存，请刷新页面同步状态。' : e.message + '，正在重试…';
+    if (loginState.value === 'success') return;
+  }
+  if (generation === loginGeneration) loginTimer = setTimeout(() => pollBilibiliLogin(generation), 2000);
+}
 async function controlBilibili(action) {
   if (action === 'start' && !(await save())) return;
   await run(async () => {
@@ -168,7 +228,7 @@ onMounted(async () => {
   run(async () => { devices.value = (await request('/api/devices', undefined, 'GET')).devices; });
   poll = setInterval(() => refresh(), 3000);
 });
-onUnmounted(() => { disposed = true; clearInterval(poll); clearTimeout(retry); socket?.close(); });
+onUnmounted(() => { disposed = true; closeBilibiliLogin(); clearInterval(poll); clearTimeout(retry); socket?.close(); });
 </script>
 
 <template>
@@ -245,7 +305,9 @@ onUnmounted(() => { disposed = true; clearInterval(poll); clearTimeout(retry); s
         <fieldset>
           <legend>B站直播弹幕朗读</legend>
           <label class="check"><input type="checkbox" v-model="config.bilibili.enabled">启用弹幕监听</label>
-          <p class="muted">默认以访客身份连接 B 站，不需要登录。遇到风控无法连接时，可在高级设置里填写自己的 Cookie。房间号填写直播间地址中的数字即可。</p>
+          <p class="muted">可以访客身份监听；需要真实用户名时，点击扫码登录，无需手动填写 Cookie。房间号填写直播间地址中的数字即可。</p>
+          <div class="inline"><button @click="openBilibiliLogin">{{ bilibili.cookieConfigured ? '重新扫码登录 B站' : '扫码登录 B站' }}</button></div>
+          <p class="muted">{{ bilibiliSessionNote }}</p>
           <div class="two">
             <label>房间号<input type="number" min="1" v-model.number="config.bilibili.roomId" placeholder="例如 5928158"></label>
             <label>违禁词处理<select v-model="config.bilibili.filterMode"><option value="mask">替换后朗读</option><option value="drop">整条忽略</option></select></label>
@@ -276,7 +338,7 @@ onUnmounted(() => { disposed = true; clearInterval(poll); clearTimeout(retry); s
             <p class="muted">朗读效果：{{ speakPreview }}</p>
             <p v-if="speakPreviewFallback" class="muted">昵称取不到时：{{ speakPreviewFallback }}</p>
             <p class="muted" :class="{ warn: speakTemplateUsesName && !bilibili.loggedIn }">{{ bilibiliSessionNote }}</p>
-            <label>B站 Cookie（可选）<textarea class="short" v-model="config.bilibili.cookie" placeholder="遇到风控时填写 SESSDATA=...; bili_jct=...; buvid3=..."></textarea></label>
+            <details><summary>手动配置 Cookie（备用）</summary><label>B站 Cookie<textarea class="short" v-model="config.bilibili.cookie" placeholder="仅在扫码不可用时手动填写"></textarea></label></details>
           </details>
           <details v-if="bilibili.recent?.length"><summary>最近弹幕</summary><div class="danmaku-list"><div v-for="item in bilibili.recent" :key="item.time + item.text" class="danmaku-item"><span>{{ item.user }}</span><strong>{{ item.text }}</strong><em>{{ item.action }}{{ item.reason ? ' · ' + item.reason : '' }}</em></div></div></details>
         </fieldset>
@@ -284,6 +346,17 @@ onUnmounted(() => { disposed = true; clearInterval(poll); clearTimeout(retry); s
       </main>
     </template>
     <footer>SoVITS Live <span>本地合成 · 局域网控制</span></footer>
+    <div v-if="showBilibiliLogin" class="overlay" @click.self="closeBilibiliLogin" @keydown.esc="closeBilibiliLogin">
+      <section class="dialog panel" role="dialog" aria-modal="true" aria-label="B站扫码登录" tabindex="-1">
+        <div class="section-top"><h2>B站扫码登录</h2><button @click="closeBilibiliLogin">关闭</button></div>
+        <p role="status">{{ loginLabels[loginState] }}</p>
+        <img v-if="loginQr" :src="loginQr" alt="使用哔哩哔哩 App 扫描此二维码登录">
+        <p v-if="loginError" class="task-error" role="alert">{{ loginError }}</p>
+        <p class="muted">打开哔哩哔哩 App 扫一扫，并在手机上确认。登录信息自动保存在本机，正在运行的监听会自动重连。</p>
+        <button v-if="['expired', 'error'].includes(loginState)" @click="openBilibiliLogin">刷新二维码</button>
+        <button v-if="loginState === 'success'" @click="closeBilibiliLogin">完成</button>
+      </section>
+    </div>
     <div v-if="showPhone" class="overlay" @click.self="showPhone = false"><section class="dialog panel" role="dialog" aria-label="手机连接"><div class="section-top"><h2>手机连接</h2><button @click="showPhone = false">关闭</button></div><p class="muted">手机和电脑连接同一路由器，扫描二维码打开控制台。</p><img :src="qr" alt="手机访问二维码"><a :href="address">{{ address }}</a><div v-if="firewall && firewall.ok === false" class="firewall-hint"><p>{{ firewall.firewall }} 拦截了局域网访问，先在电脑上放行端口：</p><code>{{ firewall.fix }}</code></div></section></div>
   </div>
 </template>
